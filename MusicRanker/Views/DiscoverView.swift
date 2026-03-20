@@ -13,7 +13,6 @@ struct DiscoverView: View {
     // Rich sections
     @State private var discoverSections: [DiscoverSection] = []
     @State private var isLoadingSections = false
-    @State private var cardZoneHeight: CGFloat = 472
 
     var body: some View {
         ZStack {
@@ -40,7 +39,6 @@ struct DiscoverView: View {
                 player.forcePlay(track: first)
                 await updateGradient(for: first)
             }
-            // Load trending + sections in parallel
             async let trends: () = trendingService.loadTrending()
             async let sections: () = loadDiscoverSections()
             _ = await (trends, sections)
@@ -58,140 +56,151 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: - Main Content (Scrollable with card + sections)
+    // MARK: - Main Content
 
     private var mainContent: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 0) {
-                // Compact swipe card zone
-                swipeCardZone
-                    .padding(.top, 4)
+            LazyVStack(spacing: 0) {
+                // Hero card zone
+                heroZone
+                    .padding(.top, 8)
 
-                // Rich sections below (visible without scrolling much)
-                VStack(alignment: .leading, spacing: 0) {
-                    // Trending section (real data)
-                    if !trendingService.trendingTracks.isEmpty {
-                        trendingInlineSection
-                            .padding(.top, 24)
-                    }
+                // Action buttons — tight below card
+                actionPill
+                    .padding(.top, 10)
 
-                    // Personalized sections
-                    if !discoverSections.isEmpty {
-                        richSections
-                            .padding(.top, 24)
-                    } else if isLoadingSections {
-                        loadingSectionsPlaceholder
-                            .padding(.top, 28)
-                    }
+                // Trending (real data — prominent section)
+                if !trendingService.trendingTracks.isEmpty {
+                    trendingSection
+                        .padding(.top, 28)
                 }
 
-                Spacer(minLength: 120)
+                // Personalized sections
+                if !discoverSections.isEmpty {
+                    personalizedSections
+                        .padding(.top, 24)
+                } else if isLoadingSections {
+                    loadingSectionsPlaceholder
+                        .padding(.top, 24)
+                }
+
+                Spacer(minLength: 100)
             }
         }
     }
 
-    // MARK: - Swipe Card Zone (more compact)
+    // MARK: - Hero Card Zone
 
-    private var swipeCardZone: some View {
+    private var heroZone: some View {
         GeometryReader { geo in
-            let cardWidth = geo.size.width - 56
-            let cardHeight: CGFloat = min(geo.size.width * 0.95, 400)
+            let cardWidth = geo.size.width - 64
+            let cardHeight = cardWidth * 1.28
 
-            VStack(spacing: 12) {
-                // Card stack
-                ZStack {
-                    ForEach(Array(engine.cards.prefix(3).enumerated().reversed()), id: \.element.id) { index, track in
-                        let isTop = index == 0
-                        SwipeCard(
-                            track: track,
-                            width: cardWidth,
-                            height: cardHeight,
-                            onSwipe: { liked in handleSwipe(track: track, liked: liked) },
-                            onTapArtwork: { handleArtworkTap(track: track) },
-                            onLongPress: { detailTrack = track }
-                        )
-                        .scaleEffect(isTop ? 1 : 1 - CGFloat(index) * 0.04)
-                        .offset(y: isTop ? 0 : CGFloat(index) * 6)
-                        .allowsHitTesting(isTop)
-                    }
-                }
-
-                // Compact action buttons
-                HStack(spacing: 44) {
-                    actionButton(icon: "xmark", color: .red, size: 48) {
-                        if let track = engine.cards.first {
-                            handleSwipe(track: track, liked: false)
-                        }
-                    }
-
-                    actionButton(icon: "heart.fill", color: .green, size: 48) {
-                        if let track = engine.cards.first {
-                            handleSwipe(track: track, liked: true)
-                        }
-                    }
+            ZStack {
+                ForEach(Array(engine.cards.prefix(3).enumerated().reversed()), id: \.element.id) { index, track in
+                    let isTop = index == 0
+                    HeroSwipeCard(
+                        track: track,
+                        width: cardWidth,
+                        height: cardHeight,
+                        onSwipe: { liked in handleSwipe(track: track, liked: liked) },
+                        onTapArtwork: { handleArtworkTap(track: track) },
+                        onLongPress: { detailTrack = track }
+                    )
+                    .scaleEffect(isTop ? 1.0 : 1.0 - CGFloat(index) * 0.04)
+                    .offset(y: isTop ? 0 : CGFloat(index) * 8)
+                    .opacity(isTop ? 1 : 1 - CGFloat(index) * 0.15)
+                    .allowsHitTesting(isTop)
                 }
             }
+            .frame(maxWidth: .infinity)
             .onAppear {
-                cardZoneHeight = min(geo.size.width * 0.95 + 72, 472)
+                let total = cardHeight + 10 + 44 // card + gap + buttons
+                cardZoneHeight = min(total, 560)
             }
         }
         .frame(height: cardZoneHeight)
     }
 
-    private func actionButton(icon: String, color: Color, size: CGFloat, action: @escaping () -> Void) -> some View {
+    @State private var cardZoneHeight: CGFloat = 520
+
+    // MARK: - Action Pill (glass container, close to card)
+
+    private var actionPill: some View {
+        HStack(spacing: 36) {
+            actionButton(icon: "xmark", color: .red) {
+                if let track = engine.cards.first {
+                    handleSwipe(track: track, liked: false)
+                }
+            }
+
+            actionButton(icon: "heart.fill", color: .green) {
+                if let track = engine.cards.first {
+                    handleSwipe(track: track, liked: true)
+                }
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 10)
+        .background(.ultraThinMaterial.opacity(0.6), in: Capsule())
+        .overlay {
+            Capsule()
+                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
+        }
+    }
+
+    private func actionButton(icon: String, color: Color, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: icon)
-                .font(.system(size: size * 0.33, weight: .bold))
+                .font(.system(size: 18, weight: .bold))
                 .foregroundStyle(color)
-                .frame(width: size, height: size)
+                .frame(width: 44, height: 44)
                 .background {
                     Circle()
-                        .fill(.ultraThinMaterial)
-                        .shadow(color: color.opacity(0.25), radius: 8, y: 2)
+                        .fill(color.opacity(0.12))
                 }
                 .overlay {
                     Circle()
-                        .strokeBorder(color.opacity(0.3), lineWidth: 1.5)
+                        .strokeBorder(color.opacity(0.25), lineWidth: 1.5)
                 }
         }
         .buttonStyle(ScaleButtonStyle())
     }
 
-    // MARK: - Trending Inline Section (real data from TrendingService)
+    // MARK: - Trending Section (prominent)
 
-    private var trendingInlineSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+    private var trendingSection: some View {
+        VStack(alignment: .leading, spacing: 14) {
             // Header
-            HStack(spacing: 8) {
+            HStack(spacing: 10) {
+                // Icon
                 Image(systemName: "chart.line.uptrend.xyaxis")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.orange)
-                    .frame(width: 22, height: 22)
-                    .background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
-
-                Text("Tendances")
                     .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.orange)
 
-                Text(countryFlag(trendingService.countryCode))
-                    .font(.caption)
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 6) {
+                        Text("Tendances")
+                            .font(.headline.weight(.bold))
+                            .foregroundStyle(.white)
+
+                        Text(countryFlag(trendingService.countryCode))
+                            .font(.subheadline)
+                    }
+                    Text("Top charts en ce moment")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.4))
+                }
 
                 Spacer()
-
-                Text(trendingService.sourceName)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.3))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(.white.opacity(0.08), in: Capsule())
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 24)
 
-            // Horizontal trending cards
+            // Cards
             ScrollView(.horizontal, showsIndicators: false) {
-                LazyHStack(spacing: 12) {
-                    ForEach(Array(trendingService.trendingTracks.prefix(12).enumerated()), id: \.element.id) { index, track in
-                        TrendingCompactCard(track: track, rank: index + 1) {
+                LazyHStack(spacing: 14) {
+                    ForEach(Array(trendingService.trendingTracks.prefix(15).enumerated()), id: \.element.id) { index, track in
+                        TrendingCard(track: track, rank: index + 1) {
                             HapticManager.impact(.light)
                             if player.isCurrent(id: track.id) {
                                 player.togglePause()
@@ -204,14 +213,14 @@ struct DiscoverView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 24)
             }
         }
     }
 
-    // MARK: - Rich Sections
+    // MARK: - Personalized Sections
 
-    private var richSections: some View {
+    private var personalizedSections: some View {
         LazyVStack(alignment: .leading, spacing: 24) {
             ForEach(discoverSections) { section in
                 discoverSectionView(section)
@@ -220,14 +229,14 @@ struct DiscoverView: View {
     }
 
     private func discoverSectionView(_ section: DiscoverSection) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: 12) {
             // Header
             HStack(spacing: 8) {
                 Image(systemName: section.icon)
                     .font(.caption.weight(.bold))
                     .foregroundStyle(section.accentColor)
-                    .frame(width: 22, height: 22)
-                    .background(section.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+                    .frame(width: 24, height: 24)
+                    .background(section.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 7))
 
                 VStack(alignment: .leading, spacing: 1) {
                     Text(section.title)
@@ -241,7 +250,7 @@ struct DiscoverView: View {
                 }
                 Spacer()
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 24)
 
             // Horizontal cards
             ScrollView(.horizontal, showsIndicators: false) {
@@ -260,7 +269,7 @@ struct DiscoverView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 24)
             }
         }
     }
@@ -270,17 +279,17 @@ struct DiscoverView: View {
     private var loadingSectionsPlaceholder: some View {
         VStack(alignment: .leading, spacing: 24) {
             ForEach(0..<2, id: \.self) { _ in
-                VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 12) {
                     HStack(spacing: 8) {
-                        RoundedRectangle(cornerRadius: 6)
+                        RoundedRectangle(cornerRadius: 7)
                             .fill(.white.opacity(0.06))
-                            .frame(width: 22, height: 22)
+                            .frame(width: 24, height: 24)
                         RoundedRectangle(cornerRadius: 4)
                             .fill(.white.opacity(0.06))
                             .frame(width: 120, height: 14)
                         Spacer()
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, 24)
 
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 12) {
@@ -288,22 +297,21 @@ struct DiscoverView: View {
                                 VStack(alignment: .leading, spacing: 6) {
                                     RoundedRectangle(cornerRadius: 10)
                                         .fill(.white.opacity(0.06))
-                                        .frame(width: 130, height: 130)
+                                        .frame(width: 140, height: 140)
                                     RoundedRectangle(cornerRadius: 3)
-                                        .fill(.white.opacity(0.06))
-                                        .frame(width: 90, height: 10)
+                                        .fill(.white.opacity(0.05))
+                                        .frame(width: 100, height: 10)
                                     RoundedRectangle(cornerRadius: 3)
-                                        .fill(.white.opacity(0.04))
-                                        .frame(width: 60, height: 8)
+                                        .fill(.white.opacity(0.03))
+                                        .frame(width: 70, height: 8)
                                 }
                             }
                         }
-                        .padding(.horizontal, 20)
+                        .padding(.horizontal, 24)
                     }
                 }
             }
         }
-        .redacted(reason: .placeholder)
     }
 
     @ViewBuilder
@@ -489,7 +497,7 @@ struct DiscoverView: View {
             ))
         }
 
-        // 5. À écouter ensuite (based on recent likes)
+        // 5. À écouter ensuite
         if profile.topGenres.count >= 2 {
             let secondGenre = profile.topGenres[1].name
             let tracks = await service.search(term: "\(secondGenre) \(year)", limit: 15)
@@ -567,7 +575,7 @@ struct DiscoverSection: Identifiable {
     let tracks: [iTunesTrack]
 
     init(title: String, subtitle: String?, icon: String, accentColor: Color, tracks: [iTunesTrack]) {
-        self.id = title // Stable ID based on title
+        self.id = title
         self.title = title
         self.subtitle = subtitle
         self.icon = icon
@@ -576,118 +584,9 @@ struct DiscoverSection: Identifiable {
     }
 }
 
-// MARK: - Trending Compact Card (with rank, for Discover)
+// MARK: - Hero Swipe Card (full-bleed artwork with overlay)
 
-struct TrendingCompactCard: View {
-    let track: iTunesTrack
-    let rank: Int
-    let onTap: () -> Void
-
-    @EnvironmentObject private var player: AudioPlayerManager
-
-    private var isPlaying: Bool { player.isCurrentlyPlaying(id: track.id) }
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 10) {
-                // Rank number
-                Text("\(rank)")
-                    .font(.system(size: 15, weight: .heavy, design: .rounded).monospacedDigit())
-                    .foregroundStyle(rank <= 3 ? .orange : .white.opacity(0.35))
-                    .frame(width: 20)
-
-                // Artwork
-                ZStack(alignment: .bottomTrailing) {
-                    AsyncArtwork(url: track.artworkURL(size: 200), size: 48, radius: 8)
-
-                    if isPlaying {
-                        Image(systemName: "waveform")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundStyle(.white)
-                            .symbolEffect(.variableColor.iterative, isActive: isPlaying)
-                            .padding(3)
-                            .background(.black.opacity(0.5), in: Circle())
-                            .offset(x: 2, y: 2)
-                    }
-                }
-
-                // Info
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(track.title)
-                        .font(.caption.weight(.semibold))
-                        .lineLimit(1)
-                        .foregroundStyle(.white)
-                    Text(track.artistName)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.5))
-                        .lineLimit(1)
-                }
-                .frame(width: 100, alignment: .leading)
-            }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 10)
-            .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-// MARK: - Discover Track Card (lightweight, premium)
-
-struct DiscoverTrackCard: View {
-    let track: iTunesTrack
-    let onTap: () -> Void
-
-    @EnvironmentObject private var player: AudioPlayerManager
-
-    private var isPlaying: Bool { player.isCurrentlyPlaying(id: track.id) }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ZStack(alignment: .bottomTrailing) {
-                AsyncArtwork(url: track.artworkURL(size: 300), size: 130, radius: 10)
-                    .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
-
-                if isPlaying {
-                    Image(systemName: "waveform")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .symbolEffect(.variableColor.iterative, isActive: isPlaying)
-                        .padding(4)
-                        .background(.black.opacity(0.5), in: Circle())
-                        .padding(5)
-                }
-            }
-            .onTapGesture { onTap() }
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(track.title)
-                    .font(.caption.weight(.semibold))
-                    .lineLimit(1)
-                    .foregroundStyle(.white)
-                Text(track.artistName)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.45))
-                    .lineLimit(1)
-            }
-            .frame(width: 130, alignment: .leading)
-        }
-    }
-}
-
-// MARK: - Scale Button Style
-
-struct ScaleButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.85 : 1)
-            .animation(.spring(duration: 0.2), value: configuration.isPressed)
-    }
-}
-
-// MARK: - Swipe Card
-
-struct SwipeCard: View {
+struct HeroSwipeCard: View {
     let track: iTunesTrack
     let width: CGFloat
     let height: CGFloat
@@ -704,73 +603,68 @@ struct SwipeCard: View {
     private var isCurrentTrack: Bool { player.isCurrent(id: track.id) }
 
     var body: some View {
-        VStack(spacing: 0) {
-            artworkView
-                .padding(.top, 12)
-                .padding(.horizontal, 12)
+        ZStack(alignment: .bottom) {
+            // Full-bleed artwork
+            artworkLayer
 
-            Spacer(minLength: 6)
-
-            trackInfo
-                .padding(.horizontal, 14)
-
-            if isCurrentTrack {
-                progressBar
-                    .padding(.horizontal, 14)
-                    .padding(.top, 8)
-            }
-
-            Spacer(minLength: 10)
+            // Bottom gradient overlay with track info
+            infoOverlay
         }
         .frame(width: width, height: height)
-        .background {
-            RoundedRectangle(cornerRadius: 22)
-                .fill(.ultraThinMaterial)
-                .shadow(color: .black.opacity(0.3), radius: 20, y: 8)
-        }
+        .clipShape(RoundedRectangle(cornerRadius: 24))
+        // Deep layered shadow
+        .shadow(color: .black.opacity(0.5), radius: 30, y: 12)
+        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+        // Swipe border glow
         .overlay {
-            RoundedRectangle(cornerRadius: 22)
-                .strokeBorder(swipeBorderGradient, lineWidth: 2)
+            RoundedRectangle(cornerRadius: 24)
+                .strokeBorder(swipeBorderGradient, lineWidth: 2.5)
         }
-        .offset(x: offset.width, y: offset.height * 0.25)
-        .rotationEffect(.degrees(Double(offset.width) / 25))
+        // Swipe labels
         .overlay(alignment: .topLeading) {
             swipeLabel("NOPE", color: .red)
                 .opacity(max(0, -swipeProgress - 0.2))
-                .padding(16)
+                .padding(20)
         }
         .overlay(alignment: .topTrailing) {
             swipeLabel("LIKE", color: .green)
                 .opacity(max(0, swipeProgress - 0.2))
-                .padding(16)
+                .padding(20)
         }
+        // Swipe transform
+        .offset(x: offset.width, y: offset.height * 0.2)
+        .rotationEffect(.degrees(Double(offset.width) / 28))
+        .scaleEffect(isPressed ? 0.97 : 1.0)
+        .animation(.spring(duration: 0.2), value: isPressed)
         .gesture(swipeGesture)
     }
 
-    @ViewBuilder
-    private var artworkView: some View {
-        let artworkSize = width - 24
+    // MARK: - Artwork Layer
 
-        ZStack {
-            AsyncArtwork(url: track.artworkURL(size: 600), size: artworkSize, radius: 14)
-                .shadow(color: .black.opacity(0.2), radius: 12, y: 6)
-                .scaleEffect(isPressed ? 0.96 : 1)
-                .animation(.spring(duration: 0.2), value: isPressed)
-
-            if isCurrentTrack && !isPlayingThis {
-                Circle()
-                    .fill(.black.opacity(0.35))
-                    .frame(width: 52, height: 52)
-                    .overlay {
-                        Image(systemName: "play.fill")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.white)
+    private var artworkLayer: some View {
+        Group {
+            if let url = track.artworkURL(size: 800) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let img):
+                        img
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: width, height: height)
+                            .clipped()
+                    case .failure:
+                        artworkPlaceholder
+                    default:
+                        artworkPlaceholder
+                            .overlay { ProgressView().tint(.white.opacity(0.5)) }
                     }
-                    .transition(.opacity)
+                }
+            } else {
+                artworkPlaceholder
             }
         }
         .onTapGesture { onTapArtwork() }
-        .onLongPressGesture(minimumDuration: 0.5) {
+        .onLongPressGesture(minimumDuration: 0.4) {
             HapticManager.impact(.medium)
             onLongPress()
         } onPressingChanged: { pressing in
@@ -778,93 +672,286 @@ struct SwipeCard: View {
         }
     }
 
-    private var trackInfo: some View {
-        VStack(spacing: 3) {
-            Text(track.title)
-                .font(.subheadline.weight(.bold))
-                .lineLimit(2)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(.white)
-
-            Text(track.artistName)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(0.6))
-                .lineLimit(1)
-
-            HStack(spacing: 6) {
-                if let genre = track.genre {
-                    Text(genre)
-                        .font(.caption2.weight(.medium))
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 2)
-                        .background(.white.opacity(0.1), in: Capsule())
-                        .foregroundStyle(.white.opacity(0.6))
-                }
-                if let year = track.releaseYear {
-                    Text(year)
-                        .font(.caption2)
-                        .foregroundStyle(.white.opacity(0.35))
-                }
-            }
-            .padding(.top, 1)
-        }
-    }
-
-    private var progressBar: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(.white.opacity(0.12)).frame(height: 3)
-                Capsule()
-                    .fill(LinearGradient(colors: [.white.opacity(0.4), .white.opacity(0.7)], startPoint: .leading, endPoint: .trailing))
-                    .frame(width: max(0, geo.size.width * player.progress), height: 3)
-                    .animation(.linear(duration: 0.25), value: player.progress)
-            }
-        }
-        .frame(height: 3)
-    }
-
-    private func swipeLabel(_ text: String, color: Color) -> some View {
-        Text(text)
-            .font(.headline.bold())
-            .foregroundStyle(color)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+    private var artworkPlaceholder: some View {
+        Rectangle()
+            .fill(.gray.opacity(0.15))
             .overlay {
-                RoundedRectangle(cornerRadius: 5)
-                    .strokeBorder(color, lineWidth: 2.5)
+                Image(systemName: "music.note")
+                    .font(.system(size: 44))
+                    .foregroundStyle(.white.opacity(0.2))
             }
-            .rotationEffect(.degrees(text == "NOPE" ? -15 : 15))
     }
 
-    private var swipeBorderGradient: some ShapeStyle {
-        if swipeProgress > 0.3 {
-            AnyShapeStyle(.green.opacity(Double(swipeProgress) * 0.6))
-        } else if swipeProgress < -0.3 {
-            AnyShapeStyle(.red.opacity(Double(-swipeProgress) * 0.6))
-        } else {
-            AnyShapeStyle(.white.opacity(0.06))
+    // MARK: - Info Overlay (gradient + text + progress)
+
+    private var infoOverlay: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            VStack(spacing: 6) {
+                // Track info
+                VStack(spacing: 4) {
+                    Text(track.title)
+                        .font(.title3.weight(.bold))
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .foregroundStyle(.white)
+                        .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+
+                    Text(track.artistName)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.8))
+                        .lineLimit(1)
+                        .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
+
+                    // Genre + year pill
+                    HStack(spacing: 6) {
+                        if let genre = track.genre {
+                            Text(genre)
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 3)
+                                .background(.white.opacity(0.15), in: Capsule())
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
+                        if let year = track.releaseYear {
+                            Text(year)
+                                .font(.caption2)
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                    }
+                }
+
+                // Play indicator
+                if isCurrentTrack {
+                    HStack(spacing: 6) {
+                        Image(systemName: isPlayingThis ? "waveform" : "play.fill")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .symbolEffect(.variableColor.iterative, isActive: isPlayingThis)
+                        Text(isPlayingThis ? "En cours" : "En pause")
+                            .font(.caption2.weight(.medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .padding(.top, 2)
+                }
+
+                // Progress bar (integrated)
+                if isCurrentTrack {
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule()
+                                .fill(.white.opacity(0.15))
+                                .frame(height: 3)
+                            Capsule()
+                                .fill(.white.opacity(0.7))
+                                .frame(width: max(0, geo.size.width * player.progress), height: 3)
+                                .animation(.linear(duration: 0.25), value: player.progress)
+                        }
+                    }
+                    .frame(height: 3)
+                    .padding(.horizontal, 8)
+                    .padding(.top, 6)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 20)
+            .padding(.top, 60)
+            .background(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black.opacity(0.3), location: 0.3),
+                        .init(color: .black.opacity(0.7), location: 0.7),
+                        .init(color: .black.opacity(0.85), location: 1.0),
+                    ],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         }
+        .allowsHitTesting(false)
     }
+
+    // MARK: - Swipe Gesture
 
     private var swipeGesture: some Gesture {
         DragGesture(minimumDistance: 15)
             .onChanged { value in offset = value.translation }
             .onEnded { value in
-                let threshold: CGFloat = 120
-                if value.translation.width > threshold {
+                let threshold: CGFloat = 110
+                let velocity = value.predictedEndTranslation.width
+                if value.translation.width > threshold || velocity > 400 {
                     animateOff(direction: 1); onSwipe(true)
-                } else if value.translation.width < -threshold {
+                } else if value.translation.width < -threshold || velocity < -400 {
                     animateOff(direction: -1); onSwipe(false)
                 } else {
-                    withAnimation(.spring(duration: 0.3)) { offset = .zero }
+                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) { offset = .zero }
                 }
             }
     }
 
     private func animateOff(direction: CGFloat) {
-        withAnimation(.easeOut(duration: 0.3)) {
-            offset = CGSize(width: direction * 500, height: 0)
+        withAnimation(.easeOut(duration: 0.28)) {
+            offset = CGSize(width: direction * 500, height: direction * 30)
         }
+    }
+
+    // MARK: - Helpers
+
+    private func swipeLabel(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.title2.bold())
+            .foregroundStyle(color)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .strokeBorder(color, lineWidth: 3)
+            }
+            .rotationEffect(.degrees(text == "NOPE" ? -15 : 15))
+            .shadow(color: color.opacity(0.4), radius: 8, y: 2)
+    }
+
+    private var swipeBorderGradient: some ShapeStyle {
+        if swipeProgress > 0.3 {
+            AnyShapeStyle(.green.opacity(Double(swipeProgress) * 0.7))
+        } else if swipeProgress < -0.3 {
+            AnyShapeStyle(.red.opacity(Double(-swipeProgress) * 0.7))
+        } else {
+            AnyShapeStyle(.white.opacity(0.06))
+        }
+    }
+}
+
+// MARK: - Trending Card (artwork-based with prominent rank)
+
+struct TrendingCard: View {
+    let track: iTunesTrack
+    let rank: Int
+    let onTap: () -> Void
+
+    @EnvironmentObject private var player: AudioPlayerManager
+
+    private var isPlaying: Bool { player.isCurrentlyPlaying(id: track.id) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            // Square artwork with rank badge
+            ZStack {
+                AsyncArtwork(url: track.artworkURL(size: 400), size: 150, radius: 14)
+                    .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+
+                // Playing indicator
+                if isPlaying {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            Spacer()
+                            Image(systemName: "waveform")
+                                .font(.caption.weight(.bold))
+                                .foregroundStyle(.white)
+                                .symbolEffect(.variableColor.iterative, isActive: isPlaying)
+                                .padding(5)
+                                .background(.black.opacity(0.55), in: Circle())
+                                .padding(6)
+                        }
+                    }
+                }
+
+                // Rank badge — top left, large
+                VStack {
+                    HStack {
+                        Text("\(rank)")
+                            .font(.system(size: rank <= 9 ? 22 : 17, weight: .black, design: .rounded).monospacedDigit())
+                            .foregroundStyle(.white)
+                            .frame(minWidth: 32, minHeight: 32)
+                            .background {
+                                Circle()
+                                    .fill(
+                                        rank == 1 ? AnyShapeStyle(LinearGradient(colors: [.orange, .yellow], startPoint: .top, endPoint: .bottom)) :
+                                        rank == 2 ? AnyShapeStyle(LinearGradient(colors: [.gray, .white.opacity(0.6)], startPoint: .top, endPoint: .bottom)) :
+                                        rank == 3 ? AnyShapeStyle(LinearGradient(colors: [.brown, .orange.opacity(0.5)], startPoint: .top, endPoint: .bottom)) :
+                                        AnyShapeStyle(.black.opacity(0.6))
+                                    )
+                                    .shadow(color: .black.opacity(0.3), radius: 4, y: 2)
+                            }
+                            .padding(8)
+                        Spacer()
+                    }
+                    Spacer()
+                }
+            }
+            .frame(width: 150, height: 150)
+            .onTapGesture { onTap() }
+
+            // Info
+            VStack(alignment: .leading, spacing: 2) {
+                Text(track.title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .foregroundStyle(.white)
+                Text(track.artistName)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.5))
+                    .lineLimit(1)
+            }
+            .frame(width: 150, alignment: .leading)
+        }
+    }
+}
+
+// MARK: - Discover Track Card
+
+struct DiscoverTrackCard: View {
+    let track: iTunesTrack
+    let onTap: () -> Void
+
+    @EnvironmentObject private var player: AudioPlayerManager
+
+    private var isPlaying: Bool { player.isCurrentlyPlaying(id: track.id) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .bottomTrailing) {
+                AsyncArtwork(url: track.artworkURL(size: 300), size: 140, radius: 12)
+                    .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+
+                if isPlaying {
+                    Image(systemName: "waveform")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.white)
+                        .symbolEffect(.variableColor.iterative, isActive: isPlaying)
+                        .padding(4)
+                        .background(.black.opacity(0.5), in: Circle())
+                        .padding(6)
+                }
+            }
+            .onTapGesture { onTap() }
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(track.title)
+                    .font(.caption.weight(.semibold))
+                    .lineLimit(1)
+                    .foregroundStyle(.white)
+                Text(track.artistName)
+                    .font(.caption2)
+                    .foregroundStyle(.white.opacity(0.45))
+                    .lineLimit(1)
+            }
+            .frame(width: 140, alignment: .leading)
+        }
+    }
+}
+
+// MARK: - Scale Button Style
+
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.85 : 1)
+            .animation(.spring(duration: 0.2), value: configuration.isPressed)
     }
 }
 
