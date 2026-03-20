@@ -5,18 +5,17 @@ struct ContentView: View {
     @EnvironmentObject private var engine: RecommendationEngine
     @EnvironmentObject private var playlistManager: PlaylistManager
     @EnvironmentObject private var trendingService: TrendingService
+    @EnvironmentObject private var moodManager: MoodManager
 
     @State private var selectedTab = 0
     @State private var showNowPlaying = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            // Discover — NO mini player (immersive)
             Tab("Découvrir", systemImage: "sparkles", value: 0) {
                 DiscoverView()
             }
 
-            // Search
             Tab("Recherche", systemImage: "magnifyingglass", value: 1) {
                 NavigationStack {
                     SearchView()
@@ -26,7 +25,6 @@ struct ContentView: View {
                 .safeAreaInset(edge: .bottom) { miniPlayerBar }
             }
 
-            // Pour toi
             Tab("Pour toi", systemImage: "wand.and.stars", value: 2) {
                 NavigationStack {
                     ForYouView()
@@ -36,7 +34,6 @@ struct ContentView: View {
                 .safeAreaInset(edge: .bottom) { miniPlayerBar }
             }
 
-            // Bibliothèque (Likes + Playlists)
             Tab("Bibliothèque", systemImage: "books.vertical", value: 3) {
                 NavigationStack {
                     LibraryView()
@@ -46,7 +43,6 @@ struct ContentView: View {
                 .safeAreaInset(edge: .bottom) { miniPlayerBar }
             }
 
-            // Profil
             Tab("Profil", systemImage: "person.crop.circle", value: 4) {
                 NavigationStack {
                     TasteProfileView()
@@ -62,51 +58,63 @@ struct ContentView: View {
                 .environmentObject(engine)
                 .environmentObject(playlistManager)
                 .environmentObject(trendingService)
+                .environmentObject(moodManager)
         }
     }
 
-    // MARK: - Mini Player (compact)
+    // MARK: - Glass Mini Player
 
     @ViewBuilder
     private var miniPlayerBar: some View {
         if player.currentTrack != nil {
-            MiniPlayerView(onTap: { showNowPlaying = true })
+            GlassMiniPlayer(onTap: { showNowPlaying = true })
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .animation(.spring(duration: 0.3), value: player.currentTrack?.id)
         }
     }
 }
 
-// MARK: - Compact Mini Player
+// MARK: - Glass Mini Player (premium blur + swipe up)
 
-struct MiniPlayerView: View {
+struct GlassMiniPlayer: View {
     @EnvironmentObject private var player: AudioPlayerManager
     var onTap: () -> Void
 
+    @State private var dragOffset: CGFloat = 0
+
     var body: some View {
         VStack(spacing: 0) {
-            // Ultra-thin progress line
+            // Progress line — glowing
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Rectangle()
                         .fill(.white.opacity(0.06))
                     Rectangle()
-                        .fill(.tint)
+                        .fill(
+                            LinearGradient(
+                                colors: [.purple, .pink, .orange],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
                         .frame(width: geo.size.width * player.progress)
+                        .shadow(color: .purple.opacity(0.4), radius: 4, y: 0)
                         .animation(.linear(duration: 0.25), value: player.progress)
                 }
             }
-            .frame(height: 2)
+            .frame(height: 2.5)
 
             HStack(spacing: 10) {
                 if let track = player.currentTrack {
+                    // Artwork with subtle rotation when playing
                     AsyncArtwork(
                         url: track.artworkURL(size: 100),
-                        size: 36,
-                        radius: 7
+                        size: 40,
+                        radius: 8
                     )
+                    .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
 
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: 2) {
                         Text(track.title)
                             .font(.footnote.weight(.semibold))
                             .lineLimit(1)
@@ -118,15 +126,22 @@ struct MiniPlayerView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
 
-                Button { player.togglePause() } label: {
+                // Play/pause with symbol transition
+                Button {
+                    HapticManager.impact(.light)
+                    player.togglePause()
+                } label: {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.callout.weight(.semibold))
                         .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 34, height: 34)
                 }
                 .tint(.primary)
 
-                Button { player.stop() } label: {
+                Button {
+                    HapticManager.selection()
+                    player.stop()
+                } label: {
                     Image(systemName: "xmark")
                         .font(.caption.weight(.medium))
                         .frame(width: 28, height: 28)
@@ -134,11 +149,46 @@ struct MiniPlayerView: View {
                 .tint(.secondary)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.vertical, 7)
         }
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .background {
+            ZStack {
+                // Glass effect
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(.ultraThinMaterial)
+                // Subtle gradient tint
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(
+                        LinearGradient(
+                            colors: [.white.opacity(0.04), .clear],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+        .shadow(color: .black.opacity(0.2), radius: 12, y: 4)
         .padding(.horizontal, 8)
         .padding(.bottom, 2)
+        .offset(y: dragOffset)
+        .gesture(
+            DragGesture(minimumDistance: 10)
+                .onChanged { value in
+                    if value.translation.height < 0 {
+                        dragOffset = value.translation.height * 0.4
+                    }
+                }
+                .onEnded { value in
+                    if value.translation.height < -40 || value.predictedEndTranslation.height < -80 {
+                        // Swipe up → open full player
+                        withAnimation(.spring(duration: 0.2)) { dragOffset = 0 }
+                        onTap()
+                    } else {
+                        withAnimation(.spring(duration: 0.3, bounce: 0.2)) { dragOffset = 0 }
+                    }
+                }
+        )
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
     }
@@ -151,4 +201,5 @@ struct MiniPlayerView: View {
         .environmentObject(RecommendationEngine(context: PersistenceController.preview.container.viewContext))
         .environmentObject(PlaylistManager(context: PersistenceController.preview.container.viewContext))
         .environmentObject(TrendingService())
+        .environmentObject(MoodManager())
 }

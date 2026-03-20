@@ -1,11 +1,11 @@
 import SwiftUI
 
-/// Full-screen Now Playing view — Apple Music inspired
-/// Swipe down to dismiss, long press for platform links, video button
+/// Full-screen Now Playing V4 — mood-influenced, premium animations
 struct NowPlayingView: View {
     @EnvironmentObject private var player: AudioPlayerManager
     @EnvironmentObject private var engine: RecommendationEngine
     @EnvironmentObject private var playlistManager: PlaylistManager
+    @EnvironmentObject private var moodManager: MoodManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var gradientColors: [Color] = ColorExtractor.fallbackColors
@@ -15,45 +15,36 @@ struct NowPlayingView: View {
     @State private var showVideo = false
     @State private var showPlaylistPicker = false
     @State private var dragOffset: CGFloat = 0
+    @State private var artworkScale: CGFloat = 1
+    @State private var likeScale: CGFloat = 1
 
     var body: some View {
         ZStack {
-            // Background
-            LinearGradient(
-                colors: gradientColors + [Color.black],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .ignoresSafeArea()
+            // Background — mood-tinted gradient
+            backgroundGradient
+                .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Drag indicator + close
                 header
                     .padding(.top, 12)
 
                 Spacer(minLength: 16)
 
-                // Artwork
                 artwork
 
                 Spacer(minLength: 20)
 
-                // Track info
                 trackInfo
 
-                // Progress
                 progressSection
                     .padding(.top, 20)
 
-                // Controls
                 playbackControls
                     .padding(.top, 24)
 
-                // Like / Dislike
                 feedbackButtons
                     .padding(.top, 20)
 
-                // Bottom actions (video, playlist, platforms)
                 bottomActions
                     .padding(.top, 16)
 
@@ -98,28 +89,52 @@ struct NowPlayingView: View {
         }
     }
 
-    // MARK: - Swipe-to-Dismiss Gesture
+    // MARK: - Background Gradient
+
+    private var backgroundGradient: some View {
+        ZStack {
+            LinearGradient(
+                colors: gradientColors + [Color.black],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            // Mood tint overlay
+            if moodManager.currentMood != .none {
+                LinearGradient(
+                    colors: moodManager.currentMood.gradient.map { $0.opacity(0.15) },
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        }
+    }
+
+    // MARK: - Swipe-to-Dismiss
 
     private var dismissGesture: some Gesture {
         DragGesture()
             .onChanged { value in
                 if value.translation.height > 0 {
                     dragOffset = value.translation.height
+                    // Scale artwork down slightly while dragging
+                    let progress = min(value.translation.height / 400, 1)
+                    artworkScale = 1 - (progress * 0.1)
                 }
             }
             .onEnded { value in
                 if value.translation.height > 150 || value.predictedEndTranslation.height > 300 {
-                    // Dismiss
                     withAnimation(.easeOut(duration: 0.25)) {
                         dragOffset = 1000
+                        artworkScale = 0.8
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         dismiss()
                     }
                 } else {
-                    // Snap back
                     withAnimation(.spring(duration: 0.35, bounce: 0.2)) {
                         dragOffset = 0
+                        artworkScale = 1
                     }
                 }
             }
@@ -140,13 +155,22 @@ struct NowPlayingView: View {
                         .foregroundStyle(.white.opacity(0.7))
                 }
                 Spacer()
-                Text("En écoute")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.5))
-                    .textCase(.uppercase)
-                    .tracking(1)
+
+                VStack(spacing: 2) {
+                    Text("En écoute")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.5))
+                        .textCase(.uppercase)
+                        .tracking(1)
+
+                    if moodManager.currentMood != .none {
+                        Text("\(moodManager.currentMood.emoji) \(moodManager.currentMood.rawValue.capitalized)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.35))
+                    }
+                }
+
                 Spacer()
-                // Long press for platforms
                 Button {
                     showPlatforms = true
                 } label: {
@@ -165,12 +189,15 @@ struct NowPlayingView: View {
             if let track = player.currentTrack {
                 AsyncArtwork(url: track.artworkURL(size: 600), size: 300, radius: 16)
                     .shadow(color: .black.opacity(0.4), radius: 30, y: 15)
+                    .scaleEffect(player.isPlaying ? artworkScale : artworkScale * 0.95)
+                    .animation(.spring(duration: 0.5), value: player.isPlaying)
             } else {
                 RoundedRectangle(cornerRadius: 16)
                     .fill(.gray.opacity(0.15))
                     .frame(width: 300, height: 300)
             }
         }
+        .scaleEffect(artworkScale)
         .onLongPressGesture(minimumDuration: 0.5) {
             HapticManager.impact(.medium)
             showPlatforms = true
@@ -210,8 +237,21 @@ struct NowPlayingView: View {
                         .fill(.white.opacity(0.15))
                         .frame(height: 4)
                     Capsule()
-                        .fill(.white.opacity(0.7))
+                        .fill(
+                            moodManager.currentMood != .none
+                            ? LinearGradient(
+                                colors: moodManager.currentMood.gradient.map { $0.opacity(0.8) },
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            : LinearGradient(
+                                colors: [.white.opacity(0.7)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
                         .frame(width: max(0, geo.size.width * player.progress), height: 4)
+                        .animation(.linear(duration: 0.25), value: player.progress)
                 }
             }
             .frame(height: 4)
@@ -262,12 +302,22 @@ struct NowPlayingView: View {
             Button {
                 guard let track = player.currentTrack else { return }
                 HapticManager.notification(.success)
-                withAnimation(.spring(duration: 0.3)) { liked = true; disliked = false }
+                withAnimation(.spring(duration: 0.3)) {
+                    liked = true
+                    disliked = false
+                    likeScale = 1.3
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    withAnimation(.spring(duration: 0.3, bounce: 0.4)) {
+                        likeScale = 1
+                    }
+                }
                 engine.saveFeedback(track: track, liked: true)
             } label: {
                 Image(systemName: liked ? "heart.fill" : "heart")
                     .font(.title2)
                     .foregroundStyle(liked ? .pink : .white.opacity(0.5))
+                    .scaleEffect(likeScale)
             }
             .buttonStyle(.plain)
         }
@@ -277,7 +327,6 @@ struct NowPlayingView: View {
 
     private var bottomActions: some View {
         HStack(spacing: 36) {
-            // Video button
             Button {
                 HapticManager.impact(.light)
                 showVideo = true
@@ -292,7 +341,6 @@ struct NowPlayingView: View {
             }
             .buttonStyle(.plain)
 
-            // Playlist button
             Button {
                 HapticManager.impact(.light)
                 showPlaylistPicker = true
@@ -307,7 +355,6 @@ struct NowPlayingView: View {
             }
             .buttonStyle(.plain)
 
-            // External platforms
             Button {
                 HapticManager.impact(.light)
                 showPlatforms = true

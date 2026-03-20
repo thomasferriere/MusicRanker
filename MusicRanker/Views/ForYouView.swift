@@ -1,10 +1,12 @@
 import SwiftUI
 
+/// Pour Toi V4 — mood integration, enhanced sections
 struct ForYouView: View {
     @EnvironmentObject private var engine: RecommendationEngine
     @EnvironmentObject private var player: AudioPlayerManager
     @EnvironmentObject private var playlistManager: PlaylistManager
     @EnvironmentObject private var trendingService: TrendingService
+    @EnvironmentObject private var moodManager: MoodManager
 
     @State private var selectedTrack: iTunesTrack?
     @State private var playlistTarget: iTunesTrack?
@@ -42,12 +44,17 @@ struct ForYouView: View {
     private var sectionsContent: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(alignment: .leading, spacing: 32) {
+                // Mood-aware header
+                if moodManager.currentMood != .none {
+                    moodHeader
+                }
+
                 // Real trending section
                 if !trendingService.trendingTracks.isEmpty {
                     trendingSection
                 }
 
-                // Trending error/loading state
+                // Trending loading
                 if trendingService.state == .loading {
                     HStack(spacing: 10) {
                         ProgressView().scaleEffect(0.8)
@@ -77,11 +84,50 @@ struct ForYouView: View {
         }
     }
 
+    // MARK: - Mood Header
+
+    private var moodHeader: some View {
+        let mood = moodManager.currentMood
+        return HStack(spacing: 12) {
+            Text(mood.emoji)
+                .font(.title)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Mode \(mood.rawValue.capitalized)")
+                    .font(.headline)
+                Text("Tes recommandations s'adaptent à ton mood")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button {
+                HapticManager.selection()
+                moodManager.selectMood(.none)
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .background(
+            LinearGradient(
+                colors: mood.gradient.map { $0.opacity(0.15) },
+                startPoint: .leading,
+                endPoint: .trailing
+            ),
+            in: RoundedRectangle(cornerRadius: 16)
+        )
+        .padding(.horizontal, 16)
+    }
+
     // MARK: - Real Trending Section
 
     private var trendingSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Header with country
             HStack(spacing: 10) {
                 Image(systemName: "chart.line.uptrend.xyaxis")
                     .font(.callout.weight(.semibold))
@@ -101,17 +147,15 @@ struct ForYouView: View {
                 }
                 Spacer()
 
-                // Source badge
                 Text(trendingService.sourceName)
                     .font(.system(size: 8, weight: .medium))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 3)
-                    .background(.quaternary, in: Capsule())
+                    .background(Color.gray.opacity(0.2), in: Capsule())
             }
             .padding(.horizontal, 20)
 
-            // Tracks
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
                     ForEach(Array(trendingService.trendingTracks.prefix(15).enumerated()), id: \.element.id) { index, track in

@@ -5,6 +5,7 @@ struct DiscoverView: View {
     @EnvironmentObject private var player: AudioPlayerManager
     @EnvironmentObject private var playlistManager: PlaylistManager
     @EnvironmentObject private var trendingService: TrendingService
+    @EnvironmentObject private var moodManager: MoodManager
 
     @State private var gradientColors: [Color] = ColorExtractor.fallbackColors
     @State private var detailTrack: iTunesTrack?
@@ -115,10 +116,14 @@ struct DiscoverView: View {
                 // Immersive hero zone
                 heroZone
 
+                // Mood selector strip
+                moodStrip
+                    .padding(.top, 14)
+
                 // Trending
                 if !trendingService.trendingTracks.isEmpty {
                     trendingSection
-                        .padding(.top, 20)
+                        .padding(.top, 18)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
@@ -185,6 +190,47 @@ struct DiscoverView: View {
             .frame(maxWidth: .infinity)
         }
         .frame(height: 572)
+    }
+
+    // MARK: - Mood Strip
+
+    private var moodStrip: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                ForEach(moodManager.activeMoods) { mood in
+                    Button {
+                        moodManager.selectMood(mood)
+                    } label: {
+                        HStack(spacing: 5) {
+                            Text(mood.emoji)
+                                .font(.caption)
+                            Text(mood.rawValue)
+                                .font(.caption.weight(.semibold))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(
+                            moodManager.currentMood == mood
+                                ? AnyShapeStyle(LinearGradient(colors: mood.gradient, startPoint: .leading, endPoint: .trailing))
+                                : AnyShapeStyle(.white.opacity(0.08)),
+                            in: Capsule()
+                        )
+                        .overlay {
+                            Capsule()
+                                .strokeBorder(
+                                    moodManager.currentMood == mood
+                                        ? .white.opacity(0.2)
+                                        : .white.opacity(0.06),
+                                    lineWidth: 1
+                                )
+                        }
+                        .foregroundStyle(moodManager.currentMood == mood ? .white : .white.opacity(0.6))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 24)
+        }
     }
 
     // MARK: - Trending Section

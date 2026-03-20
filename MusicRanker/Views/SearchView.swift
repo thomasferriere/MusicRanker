@@ -1,13 +1,24 @@
 import SwiftUI
 
+/// Search V4 — tendances, historique, suggestions, filtres mood
 struct SearchView: View {
     @StateObject private var vm = SearchViewModel()
     @EnvironmentObject private var player: AudioPlayerManager
     @EnvironmentObject private var engine: RecommendationEngine
     @EnvironmentObject private var playlistManager: PlaylistManager
+    @EnvironmentObject private var trendingService: TrendingService
+    @EnvironmentObject private var moodManager: MoodManager
 
     @State private var selectedTrack: iTunesTrack?
     @State private var playlistTarget: iTunesTrack?
+    @State private var selectedFilter: SearchFilter = .all
+
+    enum SearchFilter: String, CaseIterable {
+        case all = "Tout"
+        case title = "Titre"
+        case artist = "Artiste"
+        case mood = "Mood"
+    }
 
     var body: some View {
         Group {
@@ -42,67 +53,165 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - History
+    // MARK: - History & Suggestions
 
     private var historyAndSuggestions: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 24) {
+                // Mood quick search
+                moodQuickSearch
+                    .padding(.top, 8)
+
                 // Quick categories
                 quickCategories
-                    .padding(.top, 8)
+
+                // Trending suggestions
+                if !trendingService.trendingTracks.isEmpty {
+                    trendingSuggestions
+                }
 
                 // Recent searches
                 if !vm.searchHistory.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Recherches récentes")
-                                .font(.headline)
-                            Spacer()
-                            Button("Effacer") {
-                                vm.clearHistory()
-                            }
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        }
-
-                        LazyVStack(spacing: 0) {
-                            ForEach(vm.searchHistory.prefix(10), id: \.self) { term in
-                                Button {
-                                    vm.query = term
-                                    Task { await vm.search() }
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        Image(systemName: "clock.arrow.circlepath")
-                                            .font(.callout)
-                                            .foregroundStyle(.secondary)
-                                            .frame(width: 24)
-
-                                        Text(term)
-                                            .font(.callout)
-                                            .foregroundStyle(.primary)
-
-                                        Spacer()
-
-                                        Button {
-                                            vm.removeFromHistory(term)
-                                        } label: {
-                                            Image(systemName: "xmark")
-                                                .font(.caption)
-                                                .foregroundStyle(.tertiary)
-                                        }
-                                    }
-                                    .padding(.vertical, 10)
-                                }
-                                .buttonStyle(.plain)
-
-                                Divider().opacity(0.3)
-                            }
-                        }
-                    }
+                    recentSearches
                 }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 100)
+        }
+    }
+
+    // MARK: - Mood Quick Search
+
+    private var moodQuickSearch: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Recherche par mood")
+                .font(.headline)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    ForEach(MoodManager.Mood.allCases.filter { $0 != .none }, id: \.self) { mood in
+                        Button {
+                            HapticManager.selection()
+                            vm.query = mood.searchTerms.first ?? mood.rawValue
+                            Task { await vm.search() }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Text(mood.emoji)
+                                    .font(.callout)
+                                Text(mood.rawValue.capitalized)
+                                    .font(.callout.weight(.medium))
+                            }
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(
+                                LinearGradient(
+                                    colors: mood.gradient,
+                                    startPoint: .leading,
+                                    endPoint: .trailing
+                                ).opacity(0.2),
+                                in: Capsule()
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Trending Suggestions
+
+    private var trendingSuggestions: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "chart.line.uptrend.xyaxis")
+                    .font(.callout)
+                    .foregroundStyle(.tint)
+                Text("Tendances du moment")
+                    .font(.headline)
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 12) {
+                    ForEach(trendingService.trendingTracks.prefix(8)) { track in
+                        Button {
+                            HapticManager.impact(.light)
+                            player.forcePlay(track: track)
+                        } label: {
+                            HStack(spacing: 10) {
+                                AsyncArtwork(
+                                    url: track.artworkURL(size: 80),
+                                    size: 44,
+                                    radius: 8
+                                )
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(track.title)
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(1)
+                                    Text(track.artistName)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                            .padding(8)
+                            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Recent Searches
+
+    private var recentSearches: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Recherches récentes")
+                    .font(.headline)
+                Spacer()
+                Button("Effacer") {
+                    vm.clearHistory()
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            LazyVStack(spacing: 0) {
+                ForEach(vm.searchHistory.prefix(10), id: \.self) { term in
+                    Button {
+                        vm.query = term
+                        Task { await vm.search() }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "clock.arrow.circlepath")
+                                .font(.callout)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 24)
+
+                            Text(term)
+                                .font(.callout)
+                                .foregroundStyle(.primary)
+
+                            Spacer()
+
+                            Button {
+                                vm.removeFromHistory(term)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.caption)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.vertical, 10)
+                    }
+                    .buttonStyle(.plain)
+
+                    Divider().opacity(0.3)
+                }
+            }
         }
     }
 
@@ -154,6 +263,32 @@ struct SearchView: View {
     private var resultsList: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
+                // Filter pills
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(SearchFilter.allCases, id: \.self) { filter in
+                            Button {
+                                HapticManager.selection()
+                                withAnimation(.spring(duration: 0.2)) {
+                                    selectedFilter = filter
+                                }
+                            } label: {
+                                Text(filter.rawValue)
+                                    .font(.caption.weight(.medium))
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 6)
+                                    .background(
+                                        selectedFilter == filter ? Color.accentColor : Color.gray.opacity(0.15),
+                                        in: Capsule()
+                                    )
+                                    .foregroundStyle(selectedFilter == filter ? .white : .primary)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                }
+
                 HStack {
                     Text("\(vm.results.count) résultat\(vm.results.count > 1 ? "s" : "")")
                         .font(.caption)
@@ -161,7 +296,7 @@ struct SearchView: View {
                     Spacer()
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                .padding(.vertical, 4)
 
                 ForEach(vm.results) { track in
                     SearchResultRow(track: track)
@@ -203,7 +338,6 @@ struct SearchView: View {
                                 Label("Détails", systemImage: "info.circle")
                             }
 
-                            // External platforms
                             Menu("Ouvrir dans...") {
                                 ForEach(MusicPlatform.allCases) { platform in
                                     Button {

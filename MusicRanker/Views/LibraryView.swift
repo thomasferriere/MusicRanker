@@ -1,8 +1,12 @@
 import SwiftUI
 import CoreData
 
-/// Bibliotheque premium -- Likes + Playlists
+/// Bibliothèque V4 — Likes + Playlists + Surprends-moi
 struct LibraryView: View {
+    @EnvironmentObject private var player: AudioPlayerManager
+    @EnvironmentObject private var engine: RecommendationEngine
+    @EnvironmentObject private var moodManager: MoodManager
+
     @State private var selectedSection: LibrarySection = .likes
 
     enum LibrarySection: String, CaseIterable {
@@ -12,7 +16,7 @@ struct LibraryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Segment picker (compact)
+            // Segment picker
             Picker("Section", selection: $selectedSection) {
                 ForEach(LibrarySection.allCases, id: \.self) { section in
                     Text(section.rawValue).tag(section)
@@ -33,17 +37,26 @@ struct LibraryView: View {
     }
 }
 
-// MARK: - Playlists View (premium)
+// MARK: - Playlists View (V4 premium)
 
 struct PlaylistsView: View {
     @EnvironmentObject private var playlistManager: PlaylistManager
     @EnvironmentObject private var player: AudioPlayerManager
+    @EnvironmentObject private var engine: RecommendationEngine
+    @EnvironmentObject private var moodManager: MoodManager
 
     @State private var showNewPlaylist = false
     @State private var newPlaylistName = ""
     @State private var editingPlaylistId: String?
     @State private var editName = ""
     @State private var selectedPlaylist: PlaylistManager.Playlist?
+
+    // Surprends-moi
+    @State private var isGeneratingSurprise = false
+    @State private var surprisePlaylistName: String?
+    @State private var surpriseTracks: [iTunesTrack] = []
+    @State private var showSurpriseResult = false
+    @State private var shuffleRotation: Double = 0
 
     private let columns = [
         GridItem(.flexible(), spacing: 14),
@@ -63,6 +76,14 @@ struct PlaylistsView: View {
                 .environmentObject(playlistManager)
                 .environmentObject(player)
         }
+        .sheet(isPresented: $showSurpriseResult) {
+            SurpriseResultSheet(
+                name: surprisePlaylistName ?? "Surprise Mix",
+                tracks: surpriseTracks
+            )
+            .environmentObject(player)
+            .environmentObject(playlistManager)
+        }
         .alert("Renommer la playlist", isPresented: .init(
             get: { editingPlaylistId != nil },
             set: { if !$0 { editingPlaylistId = nil } }
@@ -78,7 +99,7 @@ struct PlaylistsView: View {
         }
     }
 
-    // MARK: - Empty State (premium)
+    // MARK: - Empty State
 
     private var emptyState: some View {
         VStack(spacing: 16) {
@@ -96,24 +117,28 @@ struct PlaylistsView: View {
             Text("Aucune playlist")
                 .font(.title3.weight(.semibold))
 
-            Text("Cree ta premiere playlist pour\norganiser tes morceaux preferes.")
+            Text("Crée ta première playlist ou laisse\nVIBELY te surprendre.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            Button {
-                withAnimation(.spring(duration: 0.3)) { showNewPlaylist = true }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "plus")
-                        .font(.caption.weight(.bold))
-                    Text("Creer une playlist")
-                        .font(.callout.weight(.semibold))
+            HStack(spacing: 12) {
+                Button {
+                    withAnimation(.spring(duration: 0.3)) { showNewPlaylist = true }
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "plus")
+                            .font(.caption.weight(.bold))
+                        Text("Créer")
+                            .font(.callout.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 11)
+                    .background(.tint, in: Capsule())
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 11)
-                .background(.tint, in: Capsule())
+
+                surpriseMeButton
             }
             .padding(.top, 4)
 
@@ -121,15 +146,18 @@ struct PlaylistsView: View {
         }
     }
 
-    // MARK: - Playlists List (grid layout)
+    // MARK: - Playlists List
 
     private var playlistsList: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 14) {
-                // Create button (compact)
-                createButton
-                    .padding(.horizontal, 16)
-                    .padding(.top, 4)
+                // Top actions row
+                HStack(spacing: 10) {
+                    createButton
+                    surpriseMeButton
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
 
                 // Create field
                 if showNewPlaylist {
@@ -161,30 +189,81 @@ struct PlaylistsView: View {
         }
     }
 
+    // MARK: - Surprends-moi Button
+
+    private var surpriseMeButton: some View {
+        Button {
+            HapticManager.impact(.medium)
+            generateSurprise()
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "wand.and.stars")
+                    .font(.caption.weight(.bold))
+                    .rotationEffect(.degrees(shuffleRotation))
+                Text("Surprends-moi")
+                    .font(.callout.weight(.semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .background(
+                LinearGradient(
+                    colors: [.purple, .pink],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                ),
+                in: Capsule()
+            )
+            .opacity(isGeneratingSurprise ? 0.7 : 1)
+        }
+        .disabled(isGeneratingSurprise)
+    }
+
+    private func generateSurprise() {
+        isGeneratingSurprise = true
+
+        // Animate wand
+        withAnimation(.spring(duration: 0.6).repeatCount(3, autoreverses: true)) {
+            shuffleRotation = 20
+        }
+
+        Task {
+            let profile = engine.buildTasteProfile()
+            let result = await SurpriseMeGenerator.shared.generate(
+                profile: profile,
+                mood: moodManager.currentMood,
+                count: 15
+            )
+
+            await MainActor.run {
+                withAnimation(.spring(duration: 0.3)) {
+                    shuffleRotation = 0
+                    isGeneratingSurprise = false
+                    surprisePlaylistName = result.name
+                    surpriseTracks = result.tracks
+                    showSurpriseResult = true
+                }
+                HapticManager.notification(.success)
+            }
+        }
+    }
+
     // MARK: - Create Button
 
     private var createButton: some View {
         Button {
             withAnimation(.spring(duration: 0.3)) { showNewPlaylist.toggle() }
         } label: {
-            HStack(spacing: 10) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(.tint.opacity(0.12))
-                        .frame(width: 40, height: 40)
-                    Image(systemName: "plus")
-                        .font(.callout.weight(.bold))
-                        .foregroundStyle(.tint)
-                }
-                Text("Nouvelle playlist")
+            HStack(spacing: 8) {
+                Image(systemName: "plus")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.tint)
+                Text("Nouvelle")
                     .font(.callout.weight(.medium))
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
             }
-            .padding(10)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 11)
+            .background(.ultraThinMaterial, in: Capsule())
         }
         .buttonStyle(.plain)
     }
@@ -196,7 +275,7 @@ struct PlaylistsView: View {
             TextField("Nom de la playlist", text: $newPlaylistName)
                 .textFieldStyle(.roundedBorder)
                 .font(.callout)
-            Button("Creer") {
+            Button("Créer") {
                 let name = newPlaylistName.trimmingCharacters(in: .whitespaces)
                 guard !name.isEmpty else { return }
                 playlistManager.createPlaylist(name: name)
@@ -242,11 +321,12 @@ struct PlaylistsView: View {
         .disabled(playlist.tracks.isEmpty)
 
         Button {
+            HapticManager.selection()
             if let random = playlist.tracks.randomElement() {
                 player.forcePlay(track: random.toiTunesTrack())
             }
         } label: {
-            Label("Lecture aleatoire", systemImage: "shuffle")
+            Label("Lecture aléatoire", systemImage: "shuffle")
         }
         .disabled(playlist.tracks.isEmpty)
 
@@ -265,6 +345,156 @@ struct PlaylistsView: View {
         } label: {
             Label("Supprimer", systemImage: "trash")
         }
+    }
+}
+
+// MARK: - Surprise Result Sheet
+
+struct SurpriseResultSheet: View {
+    let name: String
+    let tracks: [iTunesTrack]
+    @EnvironmentObject private var player: AudioPlayerManager
+    @EnvironmentObject private var playlistManager: PlaylistManager
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var saved = false
+
+    var body: some View {
+        NavigationStack {
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 16) {
+                    // Header
+                    VStack(spacing: 10) {
+                        ZStack {
+                            Circle()
+                                .fill(
+                                    LinearGradient(
+                                        colors: [.purple.opacity(0.3), .pink.opacity(0.3)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .frame(width: 80, height: 80)
+                            Image(systemName: "wand.and.stars")
+                                .font(.system(size: 32))
+                                .foregroundStyle(.purple)
+                        }
+
+                        Text(name)
+                            .font(.title2.bold())
+
+                        Text("\(tracks.count) morceaux générés par VIBELY")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 8)
+
+                    // Actions
+                    HStack(spacing: 12) {
+                        Button {
+                            HapticManager.impact(.medium)
+                            if let first = tracks.first {
+                                player.forcePlay(track: first)
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "play.fill")
+                                    .font(.caption.weight(.bold))
+                                Text("Écouter")
+                                    .font(.callout.weight(.semibold))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(.tint, in: Capsule())
+                        }
+
+                        Button {
+                            HapticManager.notification(.success)
+                            saveAsPlaylist()
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: saved ? "checkmark" : "square.and.arrow.down")
+                                    .font(.caption.weight(.bold))
+                                Text(saved ? "Sauvegardée" : "Sauvegarder")
+                                    .font(.callout.weight(.semibold))
+                            }
+                            .foregroundStyle(.tint)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 11)
+                            .background(.tint.opacity(0.12), in: Capsule())
+                        }
+                        .disabled(saved)
+                    }
+                    .padding(.horizontal, 16)
+
+                    // Track list
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(tracks.enumerated()), id: \.element.id) { index, track in
+                            HStack(spacing: 10) {
+                                Text("\(index + 1)")
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 20)
+
+                                AsyncArtwork(
+                                    url: track.artworkURL(size: 100),
+                                    size: 42,
+                                    radius: 8
+                                )
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(track.title)
+                                        .font(.callout.weight(.medium))
+                                        .lineLimit(1)
+                                    Text(track.artistName)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+
+                                if let duration = track.formattedDuration {
+                                    Text(duration)
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
+                                        .monospacedDigit()
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                HapticManager.impact(.light)
+                                player.forcePlay(track: track)
+                            }
+
+                            if index < tracks.count - 1 {
+                                Divider().padding(.leading, 84)
+                            }
+                        }
+                    }
+                }
+                .padding(.bottom, 80)
+            }
+            .navigationTitle("Surprise !")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fermer") { dismiss() }
+                }
+            }
+        }
+    }
+
+    private func saveAsPlaylist() {
+        playlistManager.createPlaylist(name: name)
+        if let playlistId = playlistManager.playlists.first?.id {
+            for track in tracks {
+                playlistManager.addTrack(track, to: playlistId)
+            }
+        }
+        withAnimation(.spring(duration: 0.3)) { saved = true }
     }
 }
 
@@ -319,10 +549,9 @@ struct PlaylistGridCard: View {
         let artworks = playlist.tracks.prefix(4).compactMap { $0.artworkURL }
 
         if artworks.isEmpty {
-            // Empty placeholder
             ZStack {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(.quaternary)
+                    .fill(Color.gray.opacity(0.2))
                 VStack(spacing: 4) {
                     Image(systemName: "music.note")
                         .font(.title2)
@@ -333,7 +562,6 @@ struct PlaylistGridCard: View {
                 }
             }
         } else if artworks.count < 4 {
-            // Single / partial artwork
             AsyncImage(url: URL(string: artworks[0])) { phase in
                 if case .success(let img) = phase {
                     img.resizable().aspectRatio(contentMode: .fill)
@@ -342,7 +570,6 @@ struct PlaylistGridCard: View {
                 }
             }
         } else {
-            // 2x2 grid mosaic
             VStack(spacing: 1.5) {
                 HStack(spacing: 1.5) {
                     mosaicTile(artworks[0])
@@ -382,13 +609,15 @@ struct PlaylistGridCard: View {
     }
 }
 
-// MARK: - Playlist Detail View (premium)
+// MARK: - Playlist Detail View (V4)
 
 struct PlaylistDetailView: View {
     let playlist: PlaylistManager.Playlist
     @EnvironmentObject private var playlistManager: PlaylistManager
     @EnvironmentObject private var player: AudioPlayerManager
     @Environment(\.dismiss) private var dismiss
+
+    @State private var shuffleScale: CGFloat = 1
 
     private var currentPlaylist: PlaylistManager.Playlist {
         playlistManager.playlists.first { $0.id == playlist.id } ?? playlist
@@ -402,7 +631,7 @@ struct PlaylistDetailView: View {
                         Spacer()
                         ZStack {
                             Circle()
-                                .fill(.quaternary)
+                                .fill(Color.gray.opacity(0.2))
                                 .frame(width: 70, height: 70)
                             Image(systemName: "music.note")
                                 .font(.title2)
@@ -419,14 +648,11 @@ struct PlaylistDetailView: View {
                 } else {
                     ScrollView(showsIndicators: false) {
                         VStack(spacing: 0) {
-                            // Header
                             playlistHeader
 
-                            // Tracks
                             LazyVStack(spacing: 0) {
                                 ForEach(Array(currentPlaylist.tracks.enumerated()), id: \.element.id) { index, track in
                                     HStack(spacing: 10) {
-                                        // Track number
                                         Text("\(index + 1)")
                                             .font(.caption.monospacedDigit())
                                             .foregroundStyle(.tertiary)
@@ -460,7 +686,7 @@ struct PlaylistDetailView: View {
                                         Button {
                                             player.forcePlay(track: track.toiTunesTrack())
                                         } label: {
-                                            Label("Ecouter", systemImage: "play.fill")
+                                            Label("Écouter", systemImage: "play.fill")
                                         }
 
                                         Divider()
@@ -519,9 +745,17 @@ struct PlaylistDetailView: View {
                     .background(.tint, in: Capsule())
                 }
 
-                // Shuffle
+                // Shuffle with animation
                 Button {
                     HapticManager.impact(.medium)
+                    withAnimation(.spring(duration: 0.3, bounce: 0.3)) {
+                        shuffleScale = 1.15
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        withAnimation(.spring(duration: 0.2)) {
+                            shuffleScale = 1
+                        }
+                    }
                     if let random = currentPlaylist.tracks.randomElement() {
                         player.forcePlay(track: random.toiTunesTrack())
                     }
@@ -529,13 +763,14 @@ struct PlaylistDetailView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "shuffle")
                             .font(.caption.weight(.bold))
-                        Text("Aleatoire")
+                        Text("Aléatoire")
                             .font(.callout.weight(.semibold))
                     }
                     .foregroundStyle(.tint)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
                     .background(.tint.opacity(0.12), in: Capsule())
+                    .scaleEffect(shuffleScale)
                 }
             }
             .padding(.horizontal, 16)

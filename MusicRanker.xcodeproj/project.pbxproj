@@ -31,6 +31,9 @@
 		FF000006000000000000002 /* SearchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000006000000000000001 /* SearchViewModel.swift */; };
 		FF000007000000000000002 /* PlaylistManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000007000000000000001 /* PlaylistManager.swift */; };
 		FF000008000000000000002 /* TrendingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000008000000000000001 /* TrendingService.swift */; };
+		FF000009000000000000002 /* MoodManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000009000000000000001 /* MoodManager.swift */; };
+		FF00000A000000000000002 /* SurpriseMeGenerator.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF00000A000000000000001 /* SurpriseMeGenerator.swift */; };
+		FF00000B000000000000002 /* MusicalMatchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF00000B000000000000001 /* MusicalMatchService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -61,6 +64,9 @@
 		FF000006000000000000001 /* SearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewModel.swift; sourceTree = "<group>"; };
 		FF000007000000000000001 /* PlaylistManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistManager.swift; sourceTree = "<group>"; };
 		FF000008000000000000001 /* TrendingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendingService.swift; sourceTree = "<group>"; };
+		FF000009000000000000001 /* MoodManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoodManager.swift; sourceTree = "<group>"; };
+		FF00000A000000000000001 /* SurpriseMeGenerator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SurpriseMeGenerator.swift; sourceTree = "<group>"; };
+		FF00000B000000000000001 /* MusicalMatchService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MusicalMatchService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -159,6 +165,9 @@
 				EE000001000000000000004 /* ColorExtractor.swift */,
 				FF000005000000000000001 /* ExternalMusicProvider.swift */,
 				FF000008000000000000001 /* TrendingService.swift */,
+				FF000009000000000000001 /* MoodManager.swift */,
+				FF00000A000000000000001 /* SurpriseMeGenerator.swift */,
+				FF00000B000000000000001 /* MusicalMatchService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -255,6 +264,9 @@
 				FF000006000000000000002 /* SearchViewModel.swift in Sources */,
 				FF000007000000000000002 /* PlaylistManager.swift in Sources */,
 				FF000008000000000000002 /* TrendingService.swift in Sources */,
+				FF000009000000000000002 /* MoodManager.swift in Sources */,
+				FF00000A000000000000002 /* SurpriseMeGenerator.swift in Sources */,
+				FF00000B000000000000002 /* MusicalMatchService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
