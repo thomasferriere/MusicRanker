@@ -13,14 +13,12 @@ struct DiscoverView: View {
             dynamicBackground
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                if engine.isLoading && engine.cards.isEmpty {
-                    loadingState
-                } else if engine.cards.isEmpty {
-                    emptyState
-                } else {
-                    cardStack
-                }
+            if engine.isLoading && engine.cards.isEmpty {
+                loadingState
+            } else if engine.cards.isEmpty {
+                emptyState
+            } else {
+                cardContent
             }
         }
         .task {
@@ -48,94 +46,92 @@ struct DiscoverView: View {
         .animation(.easeInOut(duration: 0.8), value: gradientColors.description)
     }
 
-    // MARK: - Card Stack
+    // MARK: - Card Content
 
-    private var cardStack: some View {
+    private var cardContent: some View {
         GeometryReader { geo in
-            let cardHeight = geo.size.height * 0.72
-            let cardWidth = geo.size.width - 40
+            let safeWidth = geo.size.width
+            let safeHeight = geo.size.height
 
-            VStack(spacing: 0) {
-                Spacer(minLength: 16)
+            // Card dimensions — leave room for buttons + tab bar
+            let cardWidth = safeWidth - 48
+            let buttonsHeight: CGFloat = 80  // buttons area
+            let topPadding: CGFloat = 8
+            let spacing: CGFloat = 20
+            let cardHeight = safeHeight - buttonsHeight - topPadding - spacing
 
-                // Stacked cards
+            VStack(spacing: spacing) {
+                // Card stack
                 ZStack {
                     ForEach(Array(engine.cards.prefix(3).enumerated().reversed()), id: \.element.id) { index, track in
                         let isTop = index == 0
                         SwipeCard(
                             track: track,
-                            isTop: isTop,
                             width: cardWidth,
                             height: cardHeight,
-                            onSwipe: { liked in
-                                handleSwipe(track: track, liked: liked)
-                            },
-                            onTapArtwork: {
-                                handleArtworkTap(track: track)
-                            },
-                            onLongPress: {
-                                detailTrack = track
-                            }
+                            onSwipe: { liked in handleSwipe(track: track, liked: liked) },
+                            onTapArtwork: { handleArtworkTap(track: track) },
+                            onLongPress: { detailTrack = track }
                         )
-                        .scaleEffect(isTop ? 1 : 1 - CGFloat(index) * 0.05)
-                        .offset(y: isTop ? 0 : CGFloat(index) * 12)
+                        .scaleEffect(isTop ? 1 : 1 - CGFloat(index) * 0.04)
+                        .offset(y: isTop ? 0 : CGFloat(index) * 8)
                         .allowsHitTesting(isTop)
                     }
                 }
-
-                Spacer(minLength: 12)
+                .padding(.top, topPadding)
 
                 // Action buttons
                 actionButtons
-                    .padding(.bottom, 16)
             }
+            .frame(width: safeWidth, height: safeHeight)
         }
     }
 
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: 50) {
+        HStack(spacing: 60) {
             // Dislike
-            Button {
+            actionButton(
+                icon: "xmark",
+                color: .red,
+                size: 72
+            ) {
                 if let track = engine.cards.first {
                     handleSwipe(track: track, liked: false)
                 }
-            } label: {
-                ZStack {
-                    Circle()
-                        .fill(.ultraThinMaterial)
-                        .frame(width: 64, height: 64)
-                    Circle()
-                        .strokeBorder(.red.opacity(0.4), lineWidth: 2)
-                        .frame(width: 64, height: 64)
-                    Image(systemName: "xmark")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.red)
-                }
             }
-            .buttonStyle(.plain)
 
             // Like
-            Button {
+            actionButton(
+                icon: "heart.fill",
+                color: .green,
+                size: 72
+            ) {
                 if let track = engine.cards.first {
                     handleSwipe(track: track, liked: true)
                 }
-            } label: {
-                ZStack {
+            }
+        }
+    }
+
+    private func actionButton(icon: String, color: Color, size: CGFloat, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: size * 0.33, weight: .bold))
+                .foregroundStyle(color)
+                .frame(width: size, height: size)
+                .background {
                     Circle()
                         .fill(.ultraThinMaterial)
-                        .frame(width: 64, height: 64)
-                    Circle()
-                        .strokeBorder(.green.opacity(0.4), lineWidth: 2)
-                        .frame(width: 64, height: 64)
-                    Image(systemName: "heart.fill")
-                        .font(.title2.weight(.bold))
-                        .foregroundStyle(.green)
+                        .shadow(color: color.opacity(0.3), radius: 10, y: 2)
                 }
-            }
-            .buttonStyle(.plain)
+                .overlay {
+                    Circle()
+                        .strokeBorder(color.opacity(0.35), lineWidth: 2)
+                }
         }
+        .buttonStyle(ScaleButtonStyle())
     }
 
     // MARK: - Loading & Empty
@@ -174,9 +170,8 @@ struct DiscoverView: View {
             engine.cards.removeAll { $0.id == track.id }
         }
         engine.cardSwiped(track, liked: liked)
-        HapticManager.impact(liked ? .medium : .light)
+        HapticManager.notification(liked ? .success : .warning)
 
-        // Auto-play next
         if let next = engine.cards.first {
             Task {
                 player.forcePlay(track: next)
@@ -192,7 +187,7 @@ struct DiscoverView: View {
         if player.isCurrent(id: track.id) {
             player.togglePause()
         } else {
-            Task { player.forcePlay(track: track) }
+            player.forcePlay(track: track)
         }
     }
 
@@ -204,11 +199,20 @@ struct DiscoverView: View {
     }
 }
 
+// MARK: - Scale Button Style
+
+struct ScaleButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.85 : 1)
+            .animation(.spring(duration: 0.2), value: configuration.isPressed)
+    }
+}
+
 // MARK: - Swipe Card
 
 struct SwipeCard: View {
     let track: iTunesTrack
-    let isTop: Bool
     let width: CGFloat
     let height: CGFloat
     let onSwipe: (Bool) -> Void
@@ -225,40 +229,49 @@ struct SwipeCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Spacer(minLength: 16)
-
-            // Artwork with tap-to-play and long-press-for-info
+            // Artwork — takes most of the card
             artworkView
-                .padding(.horizontal, 24)
+                .padding(.top, 20)
+                .padding(.horizontal, 20)
 
-            Spacer(minLength: 14)
+            Spacer(minLength: 12)
 
             // Track info
             trackInfo
-                .padding(.horizontal, 24)
+                .padding(.horizontal, 20)
 
             // Progress bar
             if isCurrentTrack {
                 progressBar
-                    .padding(.horizontal, 24)
-                    .padding(.top, 10)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
             }
 
             Spacer(minLength: 16)
-
-            // Swipe hints
-            swipeHints
-                .padding(.bottom, 12)
         }
         .frame(width: width, height: height)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 28))
-        .overlay(
+        .background {
             RoundedRectangle(cornerRadius: 28)
-                .strokeBorder(swipeBorderColor, lineWidth: 2.5)
-        )
-        .shadow(color: .black.opacity(0.25), radius: 20, y: 10)
-        .offset(x: offset.width, y: offset.height * 0.3)
+                .fill(.ultraThinMaterial)
+                .shadow(color: .black.opacity(0.3), radius: 24, y: 10)
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 28)
+                .strokeBorder(swipeBorderGradient, lineWidth: 2.5)
+        }
+        .offset(x: offset.width, y: offset.height * 0.25)
         .rotationEffect(.degrees(Double(offset.width) / 25))
+        // Swipe overlay indicators
+        .overlay(alignment: .topLeading) {
+            swipeLabel("NOPE", color: .red)
+                .opacity(max(0, -swipeProgress - 0.2))
+                .padding(24)
+        }
+        .overlay(alignment: .topTrailing) {
+            swipeLabel("LIKE", color: .green)
+                .opacity(max(0, swipeProgress - 0.2))
+                .padding(24)
+        }
         .gesture(swipeGesture)
     }
 
@@ -266,31 +279,29 @@ struct SwipeCard: View {
 
     @ViewBuilder
     private var artworkView: some View {
-        let artworkSize = min(width - 48, height * 0.50)
+        // Artwork fills width minus padding, aspect ratio 1:1
+        let artworkSize = width - 40
 
         ZStack {
-            AsyncArtwork(url: track.artworkURL(size: 600), size: artworkSize, radius: 20)
-                .shadow(color: .black.opacity(0.3), radius: 16, y: 8)
-                .scaleEffect(isPressed ? 0.95 : 1)
+            AsyncArtwork(url: track.artworkURL(size: 600), size: artworkSize, radius: 18)
+                .shadow(color: .black.opacity(0.25), radius: 16, y: 8)
+                .scaleEffect(isPressed ? 0.96 : 1)
                 .animation(.spring(duration: 0.2), value: isPressed)
 
-            // Play/Pause overlay
-            if isCurrentTrack {
+            // Play/Pause overlay on tap
+            if isCurrentTrack && !isPlayingThis {
                 Circle()
-                    .fill(.black.opacity(0.3))
-                    .frame(width: 56, height: 56)
+                    .fill(.black.opacity(0.35))
+                    .frame(width: 60, height: 60)
                     .overlay {
-                        Image(systemName: isPlayingThis ? "pause.fill" : "play.fill")
+                        Image(systemName: "play.fill")
                             .font(.title2.weight(.semibold))
                             .foregroundStyle(.white)
-                            .contentTransition(.symbolEffect(.replace))
                     }
-                    .opacity(isPlayingThis ? 0 : 0.8)
+                    .transition(.opacity)
             }
         }
-        .onTapGesture {
-            onTapArtwork()
-        }
+        .onTapGesture { onTapArtwork() }
         .onLongPressGesture(minimumDuration: 0.5) {
             HapticManager.impact(.medium)
             onLongPress()
@@ -302,39 +313,35 @@ struct SwipeCard: View {
     // MARK: - Track Info
 
     private var trackInfo: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 5) {
             Text(track.title)
                 .font(.title3.bold())
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(.primary)
+                .foregroundStyle(.white)
 
             Text(track.artistName)
                 .font(.callout)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.white.opacity(0.65))
                 .lineLimit(1)
 
             HStack(spacing: 8) {
                 if let genre = track.genre {
-                    genreTag(genre)
+                    Text(genre)
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.white.opacity(0.12), in: Capsule())
+                        .foregroundStyle(.white.opacity(0.7))
                 }
                 if let year = track.releaseYear {
                     Text(year)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.45))
                 }
             }
-            .padding(.top, 2)
+            .padding(.top, 4)
         }
-    }
-
-    private func genreTag(_ genre: String) -> some View {
-        Text(genre)
-            .font(.caption2.weight(.medium))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(.white.opacity(0.1), in: Capsule())
-            .foregroundStyle(.secondary)
     }
 
     // MARK: - Progress Bar
@@ -344,37 +351,50 @@ struct SwipeCard: View {
             ZStack(alignment: .leading) {
                 Capsule()
                     .fill(.white.opacity(0.15))
-                    .frame(height: 3)
+                    .frame(height: 4)
                 Capsule()
-                    .fill(.white.opacity(0.6))
-                    .frame(width: geo.size.width * player.progress, height: 3)
+                    .fill(
+                        LinearGradient(
+                            colors: [.white.opacity(0.5), .white.opacity(0.8)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: max(0, geo.size.width * player.progress), height: 4)
                     .animation(.linear(duration: 0.25), value: player.progress)
             }
         }
-        .frame(height: 3)
+        .frame(height: 4)
     }
 
-    // MARK: - Swipe Hints
+    // MARK: - Swipe Label Overlay
 
-    private var swipeHints: some View {
-        HStack(spacing: 40) {
-            Image(systemName: "xmark.circle.fill")
-                .font(.title2)
-                .foregroundStyle(.red.opacity(0.25 + max(0, -swipeProgress) * 0.75))
+    private func swipeLabel(_ text: String, color: Color) -> some View {
+        Text(text)
+            .font(.title.bold())
+            .foregroundStyle(color)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(color, lineWidth: 3)
+            }
+            .rotationEffect(.degrees(text == "NOPE" ? -15 : 15))
+    }
 
-            Image(systemName: "heart.circle.fill")
-                .font(.title2)
-                .foregroundStyle(.green.opacity(0.25 + max(0, swipeProgress) * 0.75))
+    // MARK: - Swipe Border
+
+    private var swipeBorderGradient: some ShapeStyle {
+        if swipeProgress > 0.3 {
+            return AnyShapeStyle(.green.opacity(Double(swipeProgress) * 0.6))
         }
+        if swipeProgress < -0.3 {
+            return AnyShapeStyle(.red.opacity(Double(-swipeProgress) * 0.6))
+        }
+        return AnyShapeStyle(.white.opacity(0.08))
     }
 
-    // MARK: - Swipe
-
-    private var swipeBorderColor: Color {
-        if swipeProgress > 0.3 { return .green.opacity(0.5) }
-        if swipeProgress < -0.3 { return .red.opacity(0.5) }
-        return .clear
-    }
+    // MARK: - Gesture
 
     private var swipeGesture: some Gesture {
         DragGesture()

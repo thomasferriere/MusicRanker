@@ -10,12 +10,7 @@ struct ContentView: View {
         TabView(selection: $selectedTab) {
             // Discover — NO mini player here (user request)
             Tab("Découvrir", systemImage: "sparkles", value: 0) {
-                NavigationStack {
-                    DiscoverView()
-                        .navigationTitle("Découvrir")
-                        .navigationBarTitleDisplayMode(.large)
-                        .toolbarColorScheme(.dark, for: .navigationBar)
-                }
+                DiscoverView()
             }
 
             // Pour toi — with mini player
