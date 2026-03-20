@@ -12,18 +12,17 @@ struct DiscoverView: View {
 
     @State private var discoverSections: [DiscoverSection] = []
     @State private var isLoadingSections = false
-    @State private var heroHeight: CGFloat = 540
+    @State private var scrollOffset: CGFloat = 0
+
+    // Living gradient
+    @State private var gradientPhase: CGFloat = 0
+    @State private var gradientTimer: Timer?
 
     var body: some View {
         ZStack {
-            // Dynamic gradient background — extends behind everything
-            LinearGradient(
-                colors: gradientColors + [Color.black],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-            .animation(.easeInOut(duration: 0.8), value: gradientColors.map(\.description))
+            // Living gradient background
+            livingGradientBackground
+                .ignoresSafeArea()
 
             if engine.isLoading && engine.cards.isEmpty {
                 loadingState
@@ -43,6 +42,8 @@ struct DiscoverView: View {
             async let sections: () = loadDiscoverSections()
             _ = await (trends, sections)
         }
+        .onAppear { startGradientBreathing() }
+        .onDisappear { stopGradientBreathing() }
         .sheet(item: $detailTrack) { track in
             TrackDetailView(track: track)
                 .presentationDetents([.medium, .large])
@@ -56,18 +57,69 @@ struct DiscoverView: View {
         }
     }
 
+    // MARK: - Living Gradient Background
+
+    private var livingGradientBackground: some View {
+        let breathOffset = sin(gradientPhase) * 0.08
+        let baseColors = gradientColors.isEmpty ? ColorExtractor.fallbackColors : gradientColors
+
+        return ZStack {
+            // Primary gradient layer
+            LinearGradient(
+                colors: baseColors + [Color.black],
+                startPoint: UnitPoint(x: 0.2 + breathOffset, y: 0.0 + breathOffset * 0.5),
+                endPoint: UnitPoint(x: 0.8 - breathOffset, y: 1.0 - breathOffset * 0.3)
+            )
+
+            // Secondary subtle layer for depth
+            RadialGradient(
+                colors: [
+                    baseColors.first?.opacity(0.2 + breathOffset * 0.5) ?? .clear,
+                    .clear
+                ],
+                center: UnitPoint(x: 0.3 + breathOffset * 2, y: 0.25),
+                startRadius: 50,
+                endRadius: 400
+            )
+            .blendMode(.screen)
+        }
+        .animation(.easeInOut(duration: 0.8), value: gradientColors.map(\.description))
+        .drawingGroup() // GPU-accelerated
+    }
+
+    private func startGradientBreathing() {
+        gradientTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { _ in
+            Task { @MainActor in
+                gradientPhase += 0.015
+            }
+        }
+    }
+
+    private func stopGradientBreathing() {
+        gradientTimer?.invalidate()
+        gradientTimer = nil
+    }
+
     // MARK: - Main Content
 
     private var mainContent: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                // Immersive hero zone (card + integrated actions)
+                // Scroll offset tracker
+                GeometryReader { geo in
+                    Color.clear
+                        .preference(key: ScrollOffsetKey.self, value: geo.frame(in: .named("scroll")).minY)
+                }
+                .frame(height: 0)
+
+                // Immersive hero zone
                 heroZone
 
-                // Trending — real data, tight transition
+                // Trending
                 if !trendingService.trendingTracks.isEmpty {
                     trendingSection
                         .padding(.top, 20)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
 
                 // Personalized sections
@@ -82,14 +134,24 @@ struct DiscoverView: View {
                 Spacer(minLength: 100)
             }
         }
+        .coordinateSpace(name: "scroll")
+        .onPreferenceChange(ScrollOffsetKey.self) { value in
+            scrollOffset = value
+        }
     }
 
     // MARK: - Immersive Hero Zone
 
     private var heroZone: some View {
         GeometryReader { geo in
-            let cardWidth = geo.size.width - 32 // Near full-width (16pt each side)
-            let cardHeight = min(cardWidth * 1.35, geo.size.height * 0.72)
+            let screenW = geo.size.width
+            let cardWidth = screenW - 32
+            let cardHeight = min(cardWidth * 1.35, 560)
+
+            // Parallax: card scales down slightly as you scroll
+            let scrollClamped = max(0, -scrollOffset)
+            let heroScale = max(0.88, 1.0 - scrollClamped / 1200)
+            let parallaxOffset = scrollClamped * 0.15
 
             ZStack {
                 ForEach(Array(engine.cards.prefix(3).enumerated().reversed()), id: \.element.id) { index, track in
@@ -101,21 +163,28 @@ struct DiscoverView: View {
                         onSwipe: { liked in handleSwipe(track: track, liked: liked) },
                         onTapArtwork: { handleArtworkTap(track: track) },
                         onLongPress: { detailTrack = track },
-                        onLike: { handleSwipe(track: track, liked: true) },
-                        onDislike: { handleSwipe(track: track, liked: false) }
+                        onLike: {
+                            withAnimation(.spring(duration: 0.4, bounce: 0.2)) {
+                                handleSwipe(track: track, liked: true)
+                            }
+                        },
+                        onDislike: {
+                            withAnimation(.spring(duration: 0.3, bounce: 0.1)) {
+                                handleSwipe(track: track, liked: false)
+                            }
+                        }
                     )
                     .scaleEffect(isTop ? 1.0 : 1.0 - CGFloat(index) * 0.035)
                     .offset(y: isTop ? 0 : CGFloat(index) * 10)
-                    .opacity(isTop ? 1 : 0.7 - CGFloat(index) * 0.2)
+                    .opacity(isTop ? 1 : 0.65 - CGFloat(index) * 0.2)
                     .allowsHitTesting(isTop)
                 }
             }
+            .scaleEffect(heroScale)
+            .offset(y: parallaxOffset)
             .frame(maxWidth: .infinity)
-            .onAppear {
-                heroHeight = cardHeight + 12
-            }
         }
-        .frame(height: heroHeight)
+        .frame(height: 572)
     }
 
     // MARK: - Trending Section
@@ -353,7 +422,7 @@ struct DiscoverView: View {
 
     private func updateGradient(for track: iTunesTrack) async {
         let colors = await ColorExtractor.shared.extractColors(from: track.artworkURL(size: 100))
-        withAnimation(.easeInOut(duration: 0.6)) {
+        withAnimation(.easeInOut(duration: 0.8)) {
             gradientColors = colors
         }
     }
@@ -497,7 +566,16 @@ struct DiscoverView: View {
     }
 }
 
-// MARK: - Discover Section Model (stable ID)
+// MARK: - Scroll Offset Preference Key
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+// MARK: - Discover Section Model
 
 struct DiscoverSection: Identifiable {
     let id: String
@@ -517,7 +595,7 @@ struct DiscoverSection: Identifiable {
     }
 }
 
-// MARK: - Immersive Hero Card (artwork-dominant, actions integrated)
+// MARK: - Immersive Hero Card
 
 struct ImmersiveHeroCard: View {
     let track: iTunesTrack
@@ -533,47 +611,69 @@ struct ImmersiveHeroCard: View {
     @State private var offset: CGSize = .zero
     @State private var isPressed = false
 
+    // Like/dislike micro-interaction states
+    @State private var likeGlow: CGFloat = 0
+    @State private var dislikeShake: CGFloat = 0
+
     private var swipeProgress: CGFloat { offset.width / 150 }
     private var isPlayingThis: Bool { player.isCurrentlyPlaying(id: track.id) }
     private var isCurrentTrack: Bool { player.isCurrent(id: track.id) }
 
+    // Dynamic shadow reacts to swipe
+    private var dynamicShadowColor: Color {
+        if swipeProgress > 0.2 { return .green.opacity(0.3) }
+        if swipeProgress < -0.2 { return .red.opacity(0.3) }
+        return .black.opacity(0.5)
+    }
+
+    private var dynamicShadowRadius: CGFloat {
+        let base: CGFloat = 30
+        return base + abs(swipeProgress) * 15
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
-            // Full-bleed artwork
             artworkLayer
-
-            // Bottom zone: gradient + info + actions
             bottomOverlay
         }
         .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 28))
-        .shadow(color: .black.opacity(0.55), radius: 35, y: 14)
-        .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
+        // Dynamic shadow reacts to swipe direction
+        .shadow(color: dynamicShadowColor, radius: dynamicShadowRadius, y: 12)
+        .shadow(color: .black.opacity(0.12), radius: 5, y: 2)
         // Swipe border glow
         .overlay {
             RoundedRectangle(cornerRadius: 28)
                 .strokeBorder(swipeBorderColor, lineWidth: 2.5)
         }
-        // LIKE / NOPE labels
+        // Like glow overlay
+        .overlay {
+            RoundedRectangle(cornerRadius: 28)
+                .fill(.green.opacity(likeGlow * 0.15))
+                .allowsHitTesting(false)
+        }
+        // LIKE / NOPE stamps
         .overlay(alignment: .topLeading) {
             swipeStamp("NOPE", color: .red)
-                .opacity(max(0, -swipeProgress - 0.15))
+                .opacity(max(0, -swipeProgress - 0.12))
                 .padding(24)
         }
         .overlay(alignment: .topTrailing) {
             swipeStamp("LIKE", color: .green)
-                .opacity(max(0, swipeProgress - 0.15))
+                .opacity(max(0, swipeProgress - 0.12))
                 .padding(24)
         }
-        // Transform
-        .offset(x: offset.width, y: offset.height * 0.15)
-        .rotationEffect(.degrees(Double(offset.width) / 30))
-        .scaleEffect(isPressed ? 0.975 : 1.0)
+        // Swipe transform — rotation proportional to distance, scale reduces slightly
+        .offset(x: offset.width, y: offset.height * 0.12)
+        .rotationEffect(.degrees(Double(offset.width) / 28))
+        .scaleEffect(isPressed ? 0.975 : 1.0 - abs(swipeProgress) * 0.02)
+        // Dislike shake
+        .offset(x: dislikeShake)
         .animation(.spring(duration: 0.2), value: isPressed)
         .gesture(swipeGesture)
     }
 
-    // MARK: - Artwork
+    // MARK: - Artwork with Parallax
 
     private var artworkLayer: some View {
         Group {
@@ -584,7 +684,9 @@ struct ImmersiveHeroCard: View {
                         img
                             .resizable()
                             .aspectRatio(contentMode: .fill)
-                            .frame(width: width, height: height)
+                            // Parallax: artwork moves slower than container during swipe
+                            .frame(width: width + 30, height: height + 30)
+                            .offset(x: -offset.width * 0.08, y: -15)
                             .clipped()
                     case .failure:
                         artworkPlaceholder
@@ -601,6 +703,8 @@ struct ImmersiveHeroCard: View {
                 artworkPlaceholder
             }
         }
+        .frame(width: width, height: height)
+        .clipped()
         .onTapGesture { onTapArtwork() }
         .onLongPressGesture(minimumDuration: 0.4) {
             HapticManager.impact(.medium)
@@ -620,14 +724,14 @@ struct ImmersiveHeroCard: View {
             }
     }
 
-    // MARK: - Bottom Overlay (info + progress + actions — all integrated)
+    // MARK: - Bottom Overlay
 
     private var bottomOverlay: some View {
         VStack(spacing: 0) {
             Spacer()
 
             VStack(spacing: 10) {
-                // Track info — centered, breathing
+                // Track info
                 VStack(spacing: 5) {
                     Text(track.title)
                         .font(.title2.weight(.bold))
@@ -659,31 +763,28 @@ struct ImmersiveHeroCard: View {
                     }
                 }
 
-                // Progress bar + waveform indicator
+                // Animated progress zone
                 if isCurrentTrack {
-                    HStack(spacing: 10) {
-                        // Subtle waveform (no text)
-                        Image(systemName: isPlayingThis ? "waveform" : "pause.fill")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.5))
-                            .symbolEffect(.variableColor.iterative, isActive: isPlayingThis)
-                            .frame(width: 16)
+                    HStack(spacing: 8) {
+                        // Live waveform bars
+                        LiveWaveformView(isAnimating: isPlayingThis)
+                            .frame(width: 20, height: 14)
 
-                        // Progress bar
+                        // Progress bar with glow
                         GeometryReader { geo in
                             ZStack(alignment: .leading) {
                                 Capsule()
-                                    .fill(.white.opacity(0.15))
-                                    .frame(height: 3)
+                                    .fill(.white.opacity(0.12))
+                                    .frame(height: 3.5)
                                 Capsule()
-                                    .fill(.white.opacity(0.65))
-                                    .frame(width: max(0, geo.size.width * player.progress), height: 3)
-                                    .animation(.linear(duration: 0.25), value: player.progress)
+                                    .fill(.white.opacity(0.75))
+                                    .frame(width: max(0, geo.size.width * player.progress), height: 3.5)
+                                    .shadow(color: .white.opacity(0.3), radius: 4, y: 0)
+                                    .animation(.linear(duration: 0.3), value: player.progress)
                             }
                         }
-                        .frame(height: 3)
+                        .frame(height: 3.5)
 
-                        // Duration
                         if let dur = track.formattedDuration {
                             Text(dur)
                                 .font(.system(size: 9, weight: .medium).monospacedDigit())
@@ -695,9 +796,8 @@ struct ImmersiveHeroCard: View {
 
                 // Integrated action buttons
                 HStack(spacing: 0) {
-                    // Dislike
                     Button {
-                        onDislike()
+                        triggerDislike()
                     } label: {
                         Image(systemName: "xmark")
                             .font(.system(size: 18, weight: .bold))
@@ -712,18 +812,18 @@ struct ImmersiveHeroCard: View {
 
                     Spacer()
 
-                    // Like
                     Button {
-                        onLike()
+                        triggerLike()
                     } label: {
                         Image(systemName: "heart.fill")
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.7))
+                            .foregroundStyle(.pink.opacity(0.8 + likeGlow * 0.2))
                             .frame(width: 50, height: 50)
                             .background(.white.opacity(0.08), in: Circle())
                             .overlay {
-                                Circle().strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                                Circle().strokeBorder(.pink.opacity(0.15 + likeGlow * 0.3), lineWidth: 1)
                             }
+                            .scaleEffect(1.0 + likeGlow * 0.15)
                     }
                     .buttonStyle(ScaleButtonStyle())
                 }
@@ -737,9 +837,9 @@ struct ImmersiveHeroCard: View {
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: .black.opacity(0.2), location: 0.15),
-                        .init(color: .black.opacity(0.55), location: 0.45),
-                        .init(color: .black.opacity(0.8), location: 0.75),
+                        .init(color: .black.opacity(0.15), location: 0.12),
+                        .init(color: .black.opacity(0.5), location: 0.4),
+                        .init(color: .black.opacity(0.78), location: 0.72),
                         .init(color: .black.opacity(0.92), location: 1.0),
                     ],
                     startPoint: .top,
@@ -749,28 +849,82 @@ struct ImmersiveHeroCard: View {
         }
     }
 
-    // MARK: - Swipe Gesture
+    // MARK: - Micro Interactions
+
+    private func triggerLike() {
+        HapticManager.impact(.light)
+        // Pulse glow
+        withAnimation(.easeOut(duration: 0.15)) {
+            likeGlow = 1.0
+        }
+        withAnimation(.easeIn(duration: 0.4).delay(0.15)) {
+            likeGlow = 0
+        }
+        // Delay the actual swipe slightly so the glow is visible
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            onLike()
+        }
+    }
+
+    private func triggerDislike() {
+        HapticManager.impact(.rigid)
+        // Lateral shake
+        withAnimation(.spring(duration: 0.08)) { dislikeShake = -6 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) {
+            withAnimation(.spring(duration: 0.08)) { dislikeShake = 6 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            withAnimation(.spring(duration: 0.08)) { dislikeShake = -3 }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            withAnimation(.spring(duration: 0.1)) { dislikeShake = 0 }
+            onDislike()
+        }
+    }
+
+    // MARK: - Swipe Gesture (physics-based)
 
     private var swipeGesture: some Gesture {
         DragGesture(minimumDistance: 15)
-            .onChanged { value in offset = value.translation }
-            .onEnded { value in
-                let threshold: CGFloat = 100
-                let velocity = value.predictedEndTranslation.width
-                if value.translation.width > threshold || velocity > 350 {
-                    animateOff(direction: 1); onSwipe(true)
-                } else if value.translation.width < -threshold || velocity < -350 {
-                    animateOff(direction: -1); onSwipe(false)
-                } else {
-                    withAnimation(.spring(duration: 0.35, bounce: 0.12)) { offset = .zero }
+            .onChanged { value in
+                // Card follows finger with slight damping
+                withAnimation(.interactiveSpring(response: 0.15, dampingFraction: 0.85)) {
+                    offset = value.translation
                 }
             }
-    }
+            .onEnded { value in
+                let threshold: CGFloat = 90
+                let velocity = value.predictedEndTranslation.width
+                let speed = abs(velocity)
 
-    private func animateOff(direction: CGFloat) {
-        withAnimation(.easeOut(duration: 0.25)) {
-            offset = CGSize(width: direction * 500, height: direction * 20)
-        }
+                if value.translation.width > threshold || velocity > 300 {
+                    // Like — fly off with velocity-based duration
+                    let duration = max(0.15, min(0.35, 200 / speed))
+                    withAnimation(.easeOut(duration: duration)) {
+                        offset = CGSize(width: 600, height: velocity * 0.05)
+                    }
+                    HapticManager.notification(.success)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + duration * 0.6) {
+                        onSwipe(true)
+                    }
+                } else if value.translation.width < -threshold || velocity < -300 {
+                    // Dislike — fly off faster
+                    let duration = max(0.12, min(0.3, 200 / speed))
+                    withAnimation(.easeOut(duration: duration)) {
+                        offset = CGSize(width: -600, height: velocity * 0.05)
+                    }
+                    HapticManager.notification(.warning)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + duration * 0.6) {
+                        onSwipe(false)
+                    }
+                } else {
+                    // Spring back with natural bounce
+                    withAnimation(.spring(duration: 0.5, bounce: 0.2)) {
+                        offset = .zero
+                    }
+                    HapticManager.selection()
+                }
+            }
     }
 
     // MARK: - Helpers
@@ -792,12 +946,56 @@ struct ImmersiveHeroCard: View {
     }
 
     private var swipeBorderColor: some ShapeStyle {
-        if swipeProgress > 0.25 {
-            AnyShapeStyle(.green.opacity(Double(swipeProgress) * 0.8))
-        } else if swipeProgress < -0.25 {
-            AnyShapeStyle(.red.opacity(Double(-swipeProgress) * 0.8))
+        if swipeProgress > 0.2 {
+            AnyShapeStyle(.green.opacity(Double(swipeProgress) * 0.9))
+        } else if swipeProgress < -0.2 {
+            AnyShapeStyle(.red.opacity(Double(-swipeProgress) * 0.9))
         } else {
-            AnyShapeStyle(.white.opacity(0.05))
+            AnyShapeStyle(.white.opacity(0.04))
+        }
+    }
+}
+
+// MARK: - Live Waveform View (animated bars)
+
+struct LiveWaveformView: View {
+    let isAnimating: Bool
+
+    @State private var heights: [CGFloat] = [0.3, 0.6, 0.4, 0.8, 0.5]
+    @State private var timer: Timer?
+
+    var body: some View {
+        HStack(spacing: 1.5) {
+            ForEach(0..<5, id: \.self) { i in
+                RoundedRectangle(cornerRadius: 1)
+                    .fill(.white.opacity(0.65))
+                    .frame(width: 2, height: heights[i] * 14)
+                    .frame(height: 14, alignment: .bottom)
+            }
+        }
+        .onAppear { if isAnimating { startAnimation() } }
+        .onChange(of: isAnimating) { _, active in
+            if active { startAnimation() } else { stopAnimation() }
+        }
+        .onDisappear { stopAnimation() }
+    }
+
+    private func startAnimation() {
+        timer?.invalidate()
+        timer = Timer.scheduledTimer(withTimeInterval: 0.15, repeats: true) { _ in
+            Task { @MainActor in
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    heights = (0..<5).map { _ in CGFloat.random(in: 0.2...1.0) }
+                }
+            }
+        }
+    }
+
+    private func stopAnimation() {
+        timer?.invalidate()
+        timer = nil
+        withAnimation(.easeOut(duration: 0.3)) {
+            heights = [0.2, 0.2, 0.2, 0.2, 0.2]
         }
     }
 }
@@ -823,12 +1021,10 @@ struct TrendingCard: View {
                         Spacer()
                         HStack {
                             Spacer()
-                            Image(systemName: "waveform")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.white)
-                                .symbolEffect(.variableColor.iterative, isActive: isPlaying)
-                                .padding(5)
-                                .background(.black.opacity(0.55), in: Circle())
+                            LiveWaveformView(isAnimating: true)
+                                .frame(width: 20, height: 14)
+                                .padding(6)
+                                .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 6))
                                 .padding(6)
                         }
                     }
@@ -890,12 +1086,10 @@ struct DiscoverTrackCard: View {
                     .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
 
                 if isPlaying {
-                    Image(systemName: "waveform")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .symbolEffect(.variableColor.iterative, isActive: isPlaying)
+                    LiveWaveformView(isAnimating: true)
+                        .frame(width: 18, height: 12)
                         .padding(4)
-                        .background(.black.opacity(0.5), in: Circle())
+                        .background(.black.opacity(0.5), in: RoundedRectangle(cornerRadius: 5))
                         .padding(6)
                 }
             }
