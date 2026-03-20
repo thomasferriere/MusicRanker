@@ -54,12 +54,12 @@ struct LikedSongsView: View {
                         .contentShape(Rectangle())
                         .onTapGesture {
                             HapticManager.impact(.light)
-                            Task { await playSong(song) }
+                            playSong(song)
                         }
                         .contextMenu {
                             if song.previewURL != nil {
                                 Button {
-                                    Task { await playSong(song) }
+                                    playSong(song)
                                 } label: {
                                     Label("Écouter", systemImage: "play.fill")
                                 }
@@ -140,7 +140,7 @@ struct LikedSongsView: View {
 
     // MARK: - Helpers
 
-    private func playSong(_ song: SwipedSongEntity) async {
+    private func playSong(_ song: SwipedSongEntity) {
         guard let urlStr = song.previewURL, let url = URL(string: urlStr) else { return }
         let track = iTunesTrack(
             id: Int(song.id ?? "0") ?? 0,

@@ -17,9 +17,15 @@ final class RecommendationEngine: ObservableObject {
     private let context: NSManagedObjectContext
     private let service: MusicSearchService
     private var seenIDs: Set<String> = []
-    private var recentCardArtists: [String] = [] // last N artists shown
-    private var recentCardGenres: [String] = []  // last N genres shown
+    private var recentCardArtists: [String] = []
+    private var recentCardGenres: [String] = []
     private var fetchTask: Task<Void, Never>?
+    private var forYouLoadedAt: Date?
+
+    /// Current year, computed dynamically
+    private var currentYear: Int {
+        Calendar.current.component(.year, from: Date())
+    }
 
     // MARK: - Scoring Weights
 
@@ -32,7 +38,7 @@ final class RecommendationEngine: ObservableObject {
         static let genreRedundancy: Double = 0.10
     }
 
-    // MARK: - Genre Energy Map (approximate "vibe" clustering)
+    // MARK: - Genre Energy Map
 
     private static let genreEnergy: [String: Double] = [
         "Hip-Hop/Rap": 0.80, "Pop": 0.65, "Dance": 0.90,
@@ -45,7 +51,7 @@ final class RecommendationEngine: ObservableObject {
         "K-Pop": 0.75, "French Pop": 0.55, "Musique": 0.50,
     ]
 
-    // MARK: - Related Genres (for similarity scoring)
+    // MARK: - Related Genres
 
     private static let relatedGenres: [String: Set<String>] = [
         "Hip-Hop/Rap": ["R&B/Soul", "Pop", "Dance"],
@@ -74,13 +80,13 @@ final class RecommendationEngine: ObservableObject {
     struct TasteProfile {
         let topArtists: [(name: String, count: Int, ids: [Int])]
         let topGenres: [(name: String, count: Int)]
-        let genreWeights: [String: Double]  // normalized 0...1
-        let artistWeights: [String: Double] // normalized 0...1
+        let genreWeights: [String: Double]
+        let artistWeights: [String: Double]
         let averageEnergy: Double
         let likedCount: Int
-        let recentArtists: [String]     // last 10 liked artists
-        let dislikedGenres: [String: Int] // genres from disliked songs
-        let dislikedArtists: Set<String>  // frequently disliked artists
+        let recentArtists: [String]
+        let dislikedGenres: [String: Int]
+        let dislikedArtists: Set<String>
     }
 
     func buildTasteProfile() -> TasteProfile {
@@ -98,7 +104,7 @@ final class RecommendationEngine: ObservableObject {
         let liked = all.filter(\.isLiked)
         let disliked = all.filter { !$0.isLiked }
 
-        // Artist analysis (liked)
+        // Artist analysis
         var artistCounts: [String: (count: Int, ids: Set<Int>)] = [:]
         for song in liked {
             guard let artist = song.artistName else { continue }
@@ -112,7 +118,7 @@ final class RecommendationEngine: ObservableObject {
             (name: $0.key, count: $0.value.count, ids: Array($0.value.ids))
         }
 
-        // Genre analysis (liked)
+        // Genre analysis
         var genreCounts: [String: Int] = [:]
         var totalEnergy: Double = 0
         var energyCount = 0
@@ -138,10 +144,7 @@ final class RecommendationEngine: ObservableObject {
             ($0.key, Double($0.value) / maxGenre)
         })
 
-        // Average energy
         let avgEnergy = energyCount > 0 ? totalEnergy / Double(energyCount) : 0.5
-
-        // Recent artists (last 10 liked)
         let recentArtists = liked.prefix(10).compactMap(\.artistName)
 
         // Disliked analysis
@@ -151,7 +154,6 @@ final class RecommendationEngine: ObservableObject {
             if let genre = song.genre { dislikedGenreCounts[genre, default: 0] += 1 }
             if let artist = song.artistName { dislikedArtistCounts[artist, default: 0] += 1 }
         }
-        // Artists disliked 3+ times
         let dislikedArtists = Set(dislikedArtistCounts.filter { $0.value >= 3 }.keys)
 
         return TasteProfile(
@@ -177,37 +179,32 @@ final class RecommendationEngine: ObservableObject {
     private func scoreTrack(_ track: iTunesTrack, profile: TasteProfile) -> Double {
         var score: Double = 0
 
-        // 1. User Taste Score (genre + artist match)
+        // 1. User Taste Score
         var tasteScore: Double = 0
         if let genre = track.genre {
-            // Direct genre match
             if let weight = profile.genreWeights[genre] {
                 tasteScore += weight * 0.6
             }
-            // Related genre match
             for (likedGenre, _) in profile.topGenres {
                 if let related = Self.relatedGenres[likedGenre], related.contains(genre) {
                     tasteScore += 0.3
                     break
                 }
             }
-            // Energy compatibility
             let trackEnergy = Self.genreEnergy[genre] ?? 0.5
             let energyDiff = abs(trackEnergy - profile.averageEnergy)
             tasteScore += max(0, 1.0 - energyDiff * 2) * 0.3
         }
-        // Artist match bonus
         if let artistWeight = profile.artistWeights[track.artistName] {
             tasteScore += artistWeight * 0.4
         }
-        // Penalize disliked artists
         if profile.dislikedArtists.contains(track.artistName) {
             tasteScore -= 0.8
         }
         score += Weights.userTaste * min(tasteScore, 1.5)
 
         // 2. Recency Score
-        var recencyScore: Double = 0.3 // default for unknown dates
+        var recencyScore: Double = 0.3
         if let ageDays = track.ageDays {
             switch ageDays {
             case ..<90: recencyScore = 1.0
@@ -221,51 +218,63 @@ final class RecommendationEngine: ObservableObject {
         // 3. Diversity Boost
         var diversityScore: Double = 0
         if let genre = track.genre {
-            // Bonus if this genre hasn't been shown recently
             if !recentCardGenres.suffix(5).contains(genre) {
                 diversityScore += 0.6
             }
-            // Bonus for genres user hasn't explored much
             if profile.genreWeights[genre] == nil {
                 diversityScore += 0.4
             }
         }
-        // Artist diversity
         if !recentCardArtists.suffix(3).contains(track.artistName) {
             diversityScore += 0.3
         }
         score += Weights.diversity * min(diversityScore, 1.0)
 
-        // 4. Exploration Bonus (controlled randomness)
-        let explorationBonus = Double.random(in: 0...0.15)
-        score += Weights.exploration * explorationBonus
+        // 4. Exploration Bonus
+        score += Weights.exploration * Double.random(in: 0...0.15)
 
         // 5. Artist Repetition Penalty
         var repetitionPenalty: Double = 0
-        let recentArtists3 = recentCardArtists.suffix(3)
-        let recentArtists8 = recentCardArtists.suffix(8)
-        if recentArtists3.contains(track.artistName) {
+        if recentCardArtists.suffix(3).contains(track.artistName) {
             repetitionPenalty = 1.0
-        } else if recentArtists8.contains(track.artistName) {
+        } else if recentCardArtists.suffix(8).contains(track.artistName) {
             repetitionPenalty = 0.5
         }
         score -= Weights.artistRepetition * repetitionPenalty
 
         // 6. Genre Redundancy Penalty
-        let recentGenres3 = recentCardGenres.suffix(3)
         if let genre = track.genre,
-           recentGenres3.filter({ $0 == genre }).count >= 2 {
+           recentCardGenres.suffix(3).filter({ $0 == genre }).count >= 2 {
             score -= Weights.genreRedundancy * 0.8
         }
 
         return score
     }
 
-    /// Sort and select the best tracks from a candidate pool
     private func rankTracks(_ candidates: [iTunesTrack], profile: TasteProfile, count: Int) -> [iTunesTrack] {
         let scored = candidates.map { ScoredTrack(track: $0, score: scoreTrack($0, profile: profile)) }
-        let sorted = scored.sorted { $0.score > $1.score }
-        return Array(sorted.prefix(count).map(\.track))
+        return scored.sorted { $0.score > $1.score }.prefix(count).map(\.track)
+    }
+
+    // MARK: - Recency Filters
+
+    /// Filter tracks to only keep those released within `maxAgeDays`
+    private func filterRecent(_ tracks: [iTunesTrack], maxAgeDays: Int) -> [iTunesTrack] {
+        tracks.filter { track in
+            guard let ageDays = track.ageDays else {
+                // Unknown release date: exclude from "nouveautés" sections
+                return false
+            }
+            return ageDays <= maxAgeDays
+        }
+    }
+
+    /// Filter tracks that are at least somewhat recent (within 3 years)
+    private func filterNotTooOld(_ tracks: [iTunesTrack]) -> [iTunesTrack] {
+        tracks.filter { track in
+            guard let ageDays = track.ageDays else { return true }
+            return ageDays <= 1095 // ~3 years
+        }
     }
 
     // MARK: - Swipe Cards
@@ -282,7 +291,6 @@ final class RecommendationEngine: ObservableObject {
         recentCardArtists.append(track.artistName)
         if let genre = track.genre { recentCardGenres.append(genre) }
 
-        // Keep recent lists bounded
         if recentCardArtists.count > 20 { recentCardArtists.removeFirst(10) }
         if recentCardGenres.count > 20 { recentCardGenres.removeFirst(10) }
 
@@ -297,9 +305,9 @@ final class RecommendationEngine: ObservableObject {
     private func fetchMoreCards() async {
         let profile = buildTasteProfile()
         var candidates: [iTunesTrack] = []
+        let year = currentYear
 
         if profile.likedCount >= 3 {
-            // Smart fetching based on profile
             async let artistTracks = fetchFromTopArtists(profile)
             async let genreTracks = fetchFromTopGenres(profile)
             async let trendingTracks = fetchTrending()
@@ -308,17 +316,16 @@ final class RecommendationEngine: ObservableObject {
             let all = await [artistTracks, genreTracks, trendingTracks, explorationTracks]
             candidates = all.flatMap { $0 }
         } else {
-            // Cold start: popular diverse genres
-            let starters = ["pop hits 2025", "rap français 2025", "r&b", "rock indé",
-                            "electro", "afrobeats", "k-pop", "jazz chill"]
+            let starters = ["pop hits \(year)", "rap français \(year)", "r&b \(year)",
+                            "rock indé", "electro \(year)", "afrobeats", "k-pop", "jazz chill"]
             for term in starters.shuffled().prefix(4) {
                 let tracks = await service.search(term: term, limit: 15)
                 candidates.append(contentsOf: tracks)
             }
         }
 
-        // Filter seen, deduplicate, then rank
-        let filtered = filterSeen(candidates)
+        // Filter: remove seen, prefer not-too-old, deduplicate, then rank
+        let filtered = filterNotTooOld(filterSeen(candidates))
         var uniqueIDs: Set<Int> = Set(cards.map(\.id))
         let unique = filtered.filter { uniqueIDs.insert($0.id).inserted }
 
@@ -328,8 +335,6 @@ final class RecommendationEngine: ObservableObject {
 
     private func fetchFromTopArtists(_ profile: TasteProfile) async -> [iTunesTrack] {
         var tracks: [iTunesTrack] = []
-
-        // Use artist IDs for precise lookup, fallback to name search
         for artist in profile.topArtists.prefix(3) {
             if let artistId = artist.ids.first {
                 let results = await service.lookupArtist(id: artistId, limit: 15)
@@ -339,20 +344,18 @@ final class RecommendationEngine: ObservableObject {
                 tracks.append(contentsOf: results)
             }
         }
-
-        // Also search for "similar" artists by combining genre + recent terms
         if let topGenre = profile.topGenres.first?.name {
-            let similar = await service.search(term: "\(topGenre) 2025 new", limit: 15)
+            let similar = await service.search(term: "\(topGenre) \(currentYear) new", limit: 15)
             tracks.append(contentsOf: similar)
         }
-
         return tracks
     }
 
     private func fetchFromTopGenres(_ profile: TasteProfile) async -> [iTunesTrack] {
         var tracks: [iTunesTrack] = []
+        let year = currentYear
         for genre in profile.topGenres.prefix(3) {
-            let terms = [genre.name, "\(genre.name) 2025", "\(genre.name) new"]
+            let terms = [genre.name, "\(genre.name) \(year)", "\(genre.name) new"]
             if let term = terms.randomElement() {
                 let results = await service.search(term: term, limit: 15)
                 tracks.append(contentsOf: results)
@@ -362,7 +365,8 @@ final class RecommendationEngine: ObservableObject {
     }
 
     private func fetchTrending() async -> [iTunesTrack] {
-        let terms = ["top hits 2026", "viral 2025", "trending music", "new releases 2025"]
+        let year = currentYear
+        let terms = ["top hits \(year)", "viral \(year)", "trending music \(year)", "new releases \(year)"]
         guard let term = terms.randomElement() else { return [] }
         return await service.search(term: term, limit: 15)
     }
@@ -375,7 +379,7 @@ final class RecommendationEngine: ObservableObject {
         let likedGenreNames = Set(profile.topGenres.map(\.name).map { $0.lowercased() })
         let unexplored = allGenres.filter { !likedGenreNames.contains($0) }
         guard let genre = unexplored.randomElement() else { return [] }
-        return await service.search(term: "\(genre) 2025", limit: 12)
+        return await service.search(term: "\(genre) \(currentYear)", limit: 12)
     }
 
     // MARK: - For You Sections
@@ -399,43 +403,47 @@ final class RecommendationEngine: ObservableObject {
     }
 
     func loadForYou() async {
-        guard forYouSections.isEmpty else { return }
+        // Auto-refresh if data is older than 10 minutes or user has new likes
+        if let loadedAt = forYouLoadedAt,
+           !forYouSections.isEmpty,
+           Date().timeIntervalSince(loadedAt) < 600 {
+            return
+        }
+
         isLoadingForYou = true
 
         let profile = buildTasteProfile()
         var sections: [ForYouSection] = []
 
         if profile.likedCount >= 3 {
-            // "Parce que tu aimes [Artiste]" — 2 sections max, with smart anti-repeat
             let artistSections = await buildArtistSections(profile)
             sections.append(contentsOf: artistSections)
 
-            // "Nouveautés [Genre]" — recent tracks from top genres
             let genreSections = await buildGenreSections(profile)
             sections.append(contentsOf: genreSections)
 
-            // "Ambiance" section — based on energy profile
             if let moodSection = await buildMoodSection(profile) {
                 sections.append(moodSection)
             }
         }
 
-        // "Tendances" — always visible
         if let trending = await buildTrendingSection() {
             sections.append(trending)
         }
 
-        // "Découverte" — expand horizons
         if let discovery = await buildDiscoverySection(profile) {
             sections.append(discovery)
         }
 
         forYouSections = sections
+        forYouLoadedAt = Date()
         isLoadingForYou = false
     }
 
     func refreshForYou() async {
         forYouSections = []
+        forYouLoadedAt = nil
+        (service as? iTunesService)?.clearCache()
         await loadForYou()
     }
 
@@ -443,7 +451,6 @@ final class RecommendationEngine: ObservableObject {
         var sections: [ForYouSection] = []
 
         for artist in profile.topArtists.prefix(2) {
-            // Search for related artists, NOT the same artist
             let relatedTerms = [
                 "\(artist.name) similar",
                 "\(artist.name) type beat",
@@ -454,9 +461,9 @@ final class RecommendationEngine: ObservableObject {
                 allTracks.append(contentsOf: results)
             }
 
-            // Filter out the exact same artist to avoid redundancy
+            // Filter: remove same artist, remove seen
             let filtered = filterSeen(allTracks)
-                .filter { $0.artistName != artist.name }
+                .filter { $0.artistName.lowercased() != artist.name.lowercased() }
                 .prefix(8)
 
             if filtered.count >= 3 {
@@ -475,12 +482,19 @@ final class RecommendationEngine: ObservableObject {
 
     private func buildGenreSections(_ profile: TasteProfile) async -> [ForYouSection] {
         var sections: [ForYouSection] = []
+        let year = currentYear
 
         for genre in profile.topGenres.prefix(2) {
-            let tracks = await service.search(term: "\(genre.name) 2025 nouveauté", limit: 20)
-            let ranked = rankTracks(filterSeen(tracks), profile: profile, count: 8)
+            // Search with current year to maximize recency
+            let tracks = await service.search(term: "\(genre.name) \(year)", limit: 25)
+            let seenFiltered = filterSeen(tracks)
 
-            if ranked.count >= 3 {
+            // STRICT recency filter: only tracks from last 18 months for "Nouveautés"
+            let recentOnly = filterRecent(seenFiltered, maxAgeDays: 540)
+
+            if recentOnly.count >= 3 {
+                // Rank and keep top 8
+                let ranked = rankTracks(recentOnly, profile: profile, count: 8)
                 sections.append(ForYouSection(
                     title: "Nouveautés",
                     subtitle: genre.name,
@@ -488,6 +502,18 @@ final class RecommendationEngine: ObservableObject {
                     tracks: ranked,
                     kind: .genreDeepDive(genre.name)
                 ))
+            } else {
+                // Fallback: use "Populaire" label instead of "Nouveautés" if tracks aren't recent
+                let fallback = rankTracks(seenFiltered, profile: profile, count: 8)
+                if fallback.count >= 3 {
+                    sections.append(ForYouSection(
+                        title: "Populaire en",
+                        subtitle: genre.name,
+                        icon: "star.fill",
+                        tracks: fallback,
+                        kind: .genreDeepDive(genre.name)
+                    ))
+                }
             }
         }
 
@@ -532,21 +558,37 @@ final class RecommendationEngine: ObservableObject {
     }
 
     private func buildTrendingSection() async -> ForYouSection? {
-        let terms = ["top hits 2025", "viral 2025", "new music friday", "chart hits"]
+        let year = currentYear
+        let terms = ["top hits \(year)", "viral \(year)", "new music friday", "chart hits \(year)"]
         var tracks: [iTunesTrack] = []
         for term in terms.shuffled().prefix(2) {
             let results = await service.search(term: term, limit: 12)
             tracks.append(contentsOf: results)
         }
 
-        let filtered = filterSeen(tracks).shuffled().prefix(8)
-        guard filtered.count >= 3 else { return nil }
+        // Filter: only tracks from last 2 years for "Tendances"
+        let recentTracks = filterRecent(filterSeen(tracks), maxAgeDays: 730)
+        let shuffled = recentTracks.shuffled().prefix(8)
+
+        if shuffled.count >= 3 {
+            return ForYouSection(
+                title: "Tendances",
+                subtitle: "Les sons du moment",
+                icon: "chart.line.uptrend.xyaxis",
+                tracks: Array(shuffled),
+                kind: .trending
+            )
+        }
+
+        // Fallback without strict filter if not enough recent tracks
+        let fallback = filterSeen(tracks).shuffled().prefix(8)
+        guard fallback.count >= 3 else { return nil }
 
         return ForYouSection(
-            title: "Tendances",
-            subtitle: "Les sons du moment",
+            title: "Populaire",
+            subtitle: "Titres incontournables",
             icon: "chart.line.uptrend.xyaxis",
-            tracks: Array(filtered),
+            tracks: Array(fallback),
             kind: .trending
         )
     }
@@ -559,7 +601,7 @@ final class RecommendationEngine: ObservableObject {
         let unexplored = allGenres.filter { !likedNames.contains($0) }
         guard let genre = unexplored.randomElement() else { return nil }
 
-        let tracks = await service.search(term: "\(genre) 2025", limit: 15)
+        let tracks = await service.search(term: "\(genre) \(currentYear)", limit: 15)
         let filtered = filterSeen(tracks).prefix(8)
         guard filtered.count >= 3 else { return nil }
 
@@ -583,8 +625,24 @@ final class RecommendationEngine: ObservableObject {
     }
 
     private func saveSwiped(_ track: iTunesTrack, liked: Bool) {
+        let trackID = String(track.id)
+
+        // Prevent duplicates
+        let checkRequest = NSFetchRequest<SwipedSongEntity>(entityName: "SwipedSongEntity")
+        checkRequest.predicate = NSPredicate(format: "id == %@", trackID)
+        checkRequest.fetchLimit = 1
+        if let existing = try? context.fetch(checkRequest), !existing.isEmpty {
+            // Update existing entry instead of creating duplicate
+            if let entity = existing.first {
+                entity.isLiked = liked
+                entity.swipedAt = Date()
+                try? context.save()
+            }
+            return
+        }
+
         let entity = SwipedSongEntity(context: context)
-        entity.id = String(track.id)
+        entity.id = trackID
         entity.title = track.title
         entity.artistName = track.artistName
         entity.albumName = track.albumName
@@ -605,16 +663,22 @@ final class RecommendationEngine: ObservableObject {
         tracks.filter { !seenIDs.contains(String($0.id)) && $0.previewURL != nil }
     }
 
-    /// Reset all data (for testing/debug)
+    /// Reset all data
     func resetAll() {
-        let request = NSFetchRequest<NSFetchRequestResult>(entityName: "SwipedSongEntity")
-        let delete = NSBatchDeleteRequest(fetchRequest: request)
-        try? context.execute(delete)
+        // Delete all objects through context (not batch) so UI updates
+        let request = NSFetchRequest<SwipedSongEntity>(entityName: "SwipedSongEntity")
+        if let results = try? context.fetch(request) {
+            for obj in results {
+                context.delete(obj)
+            }
+        }
         try? context.save()
+
         seenIDs.removeAll()
         recentCardArtists.removeAll()
         recentCardGenres.removeAll()
         cards.removeAll()
         forYouSections.removeAll()
+        forYouLoadedAt = nil
     }
 }

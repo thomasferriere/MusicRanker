@@ -2,24 +2,32 @@ import SwiftUI
 import UIKit
 
 /// Extracts dominant colors from artwork images for dynamic gradient backgrounds
-final class ColorExtractor {
+final class ColorExtractor: @unchecked Sendable {
 
     static let shared = ColorExtractor()
 
     private var cache: [URL: [Color]] = [:]
+    private let cacheLock = NSLock()
 
     /// Extract dominant colors from a URL (downloads the small 100x100 version)
     func extractColors(from url: URL?) async -> [Color] {
         guard let url else { return Self.fallbackColors }
 
-        // Check cache
-        if let cached = cache[url] { return cached }
+        // Check cache (thread-safe)
+        cacheLock.lock()
+        if let cached = cache[url] {
+            cacheLock.unlock()
+            return cached
+        }
+        cacheLock.unlock()
 
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             guard let image = UIImage(data: data) else { return Self.fallbackColors }
             let colors = dominantColors(from: image)
+            cacheLock.lock()
             cache[url] = colors
+            cacheLock.unlock()
             return colors
         } catch {
             return Self.fallbackColors

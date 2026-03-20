@@ -2,14 +2,14 @@ import Foundation
 
 // MARK: - Protocol for testability
 
-protocol MusicSearchService {
+protocol MusicSearchService: Sendable {
     func search(term: String, limit: Int) async -> [iTunesTrack]
     func lookupArtist(id: Int, limit: Int) async -> [iTunesTrack]
 }
 
 // MARK: - iTunes Search API Implementation
 
-final class iTunesService: MusicSearchService {
+final class iTunesService: MusicSearchService, @unchecked Sendable {
 
     static let shared = iTunesService()
 
@@ -17,9 +17,15 @@ final class iTunesService: MusicSearchService {
     private let baseURL = "https://itunes.apple.com"
     private let country = "fr"
 
-    /// Simple in-memory cache to avoid redundant requests
+    /// Thread-safe cache with NSLock
     private var cache: [String: (tracks: [iTunesTrack], date: Date)] = [:]
-    private let cacheDuration: TimeInterval = 300 // 5 minutes
+    private let cacheLock = NSLock()
+    private let cacheDuration: TimeInterval = 300
+
+    /// Rate limiting: minimum interval between requests
+    private var lastRequestTime: Date = .distantPast
+    private let minRequestInterval: TimeInterval = 0.3
+    private let rateLock = NSLock()
 
     init(session: URLSession = .shared) {
         self.session = session
@@ -29,9 +35,14 @@ final class iTunesService: MusicSearchService {
 
     func search(term: String, limit: Int = 25) async -> [iTunesTrack] {
         let cacheKey = "search:\(term):\(limit)"
+
+        // Check cache (thread-safe)
+        cacheLock.lock()
         if let cached = cache[cacheKey], Date().timeIntervalSince(cached.date) < cacheDuration {
+            cacheLock.unlock()
             return cached.tracks
         }
+        cacheLock.unlock()
 
         guard var components = URLComponents(string: "\(baseURL)/search") else { return [] }
         components.queryItems = [
@@ -43,7 +54,11 @@ final class iTunesService: MusicSearchService {
         ]
 
         let tracks = await fetch(url: components.url)
+
+        cacheLock.lock()
         cache[cacheKey] = (tracks, Date())
+        cacheLock.unlock()
+
         return tracks
     }
 
@@ -51,9 +66,13 @@ final class iTunesService: MusicSearchService {
 
     func lookupArtist(id: Int, limit: Int = 20) async -> [iTunesTrack] {
         let cacheKey = "artist:\(id):\(limit)"
+
+        cacheLock.lock()
         if let cached = cache[cacheKey], Date().timeIntervalSince(cached.date) < cacheDuration {
+            cacheLock.unlock()
             return cached.tracks
         }
+        cacheLock.unlock()
 
         guard var components = URLComponents(string: "\(baseURL)/lookup") else { return [] }
         components.queryItems = [
@@ -64,7 +83,11 @@ final class iTunesService: MusicSearchService {
         ]
 
         let tracks = await fetch(url: components.url)
+
+        cacheLock.lock()
         cache[cacheKey] = (tracks, Date())
+        cacheLock.unlock()
+
         return tracks
     }
 
@@ -72,6 +95,10 @@ final class iTunesService: MusicSearchService {
 
     private func fetch(url: URL?) async -> [iTunesTrack] {
         guard let url else { return [] }
+
+        // Simple rate limiting
+        await respectRateLimit()
+
         do {
             let (data, response) = try await session.data(from: url)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else { return [] }
@@ -83,8 +110,22 @@ final class iTunesService: MusicSearchService {
         }
     }
 
+    private func respectRateLimit() async {
+        rateLock.lock()
+        let timeSinceLast = Date().timeIntervalSince(lastRequestTime)
+        let waitTime = max(0, minRequestInterval - timeSinceLast)
+        lastRequestTime = Date().addingTimeInterval(waitTime)
+        rateLock.unlock()
+
+        if waitTime > 0 {
+            try? await Task.sleep(for: .milliseconds(Int(waitTime * 1000)))
+        }
+    }
+
     /// Clear all cached data
     func clearCache() {
+        cacheLock.lock()
         cache.removeAll()
+        cacheLock.unlock()
     }
 }
