@@ -657,6 +657,22 @@ final class RecommendationEngine: ObservableObject {
         try? context.save()
     }
 
+    // MARK: - Public Feedback (from ForYou / NowPlaying)
+
+    /// Save like/dislike from outside Discover (ForYou, NowPlaying, etc.)
+    func saveFeedback(track: iTunesTrack, liked: Bool) {
+        seenIDs.insert(String(track.id))
+        saveSwiped(track, liked: liked)
+    }
+
+    /// Check if a track is already liked
+    func isTrackLiked(id: Int) -> Bool {
+        let request = NSFetchRequest<SwipedSongEntity>(entityName: "SwipedSongEntity")
+        request.predicate = NSPredicate(format: "id == %@ AND isLiked == YES", String(id))
+        request.fetchLimit = 1
+        return (try? context.fetch(request).count) ?? 0 > 0
+    }
+
     // MARK: - Helpers
 
     private func filterSeen(_ tracks: [iTunesTrack]) -> [iTunesTrack] {

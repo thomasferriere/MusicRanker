@@ -30,9 +30,12 @@ struct ForYouView: View {
         ScrollView(showsIndicators: false) {
             LazyVStack(alignment: .leading, spacing: 32) {
                 ForEach(engine.forYouSections) { section in
-                    ForYouSectionView(section: section, onTrackSelected: { track in
-                        selectedTrack = track
-                    })
+                    ForYouSectionView(
+                        section: section,
+                        onTrackSelected: { track in
+                            selectedTrack = track
+                        }
+                    )
                 }
             }
             .padding(.top, 8)
@@ -81,6 +84,7 @@ struct ForYouSectionView: View {
     let section: RecommendationEngine.ForYouSection
     let onTrackSelected: (iTunesTrack) -> Void
     @EnvironmentObject private var player: AudioPlayerManager
+    @EnvironmentObject private var engine: RecommendationEngine
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -101,12 +105,64 @@ struct ForYouSectionView: View {
                                 } else {
                                     Task { player.forcePlay(track: track) }
                                 }
-                            },
-                            onLongPress: {
-                                HapticManager.impact(.medium)
-                                onTrackSelected(track)
                             }
                         )
+                        .contextMenu {
+                            // Like
+                            Button {
+                                HapticManager.notification(.success)
+                                engine.saveFeedback(track: track, liked: true)
+                            } label: {
+                                Label("J'aime", systemImage: engine.isTrackLiked(id: track.id) ? "heart.fill" : "heart")
+                            }
+
+                            // Dislike
+                            Button(role: .destructive) {
+                                HapticManager.notification(.warning)
+                                engine.saveFeedback(track: track, liked: false)
+                            } label: {
+                                Label("Pas pour moi", systemImage: "hand.thumbsdown")
+                            }
+
+                            Divider()
+
+                            // Play
+                            Button {
+                                HapticManager.impact(.light)
+                                player.forcePlay(track: track)
+                            } label: {
+                                Label("Écouter", systemImage: "play.fill")
+                            }
+
+                            // Details
+                            Button {
+                                onTrackSelected(track)
+                            } label: {
+                                Label("Détails", systemImage: "info.circle")
+                            }
+                        } preview: {
+                            // Context menu preview card
+                            VStack(alignment: .leading, spacing: 8) {
+                                AsyncArtwork(url: track.artworkURL(size: 600), size: 280, radius: 16)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(track.title)
+                                        .font(.headline)
+                                        .lineLimit(2)
+                                    Text(track.artistName)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                    if let album = track.albumName {
+                                        Text(album)
+                                            .font(.caption)
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                .padding(.horizontal, 4)
+                            }
+                            .padding(12)
+                            .frame(width: 304)
+                        }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -141,10 +197,8 @@ struct ForYouSectionView: View {
 struct ForYouTrackCard: View {
     let track: iTunesTrack
     let onTap: () -> Void
-    let onLongPress: () -> Void
 
     @EnvironmentObject private var player: AudioPlayerManager
-    @State private var isPressed = false
 
     private var isPlaying: Bool { player.isCurrentlyPlaying(id: track.id) }
 
@@ -154,8 +208,6 @@ struct ForYouTrackCard: View {
             ZStack(alignment: .bottomTrailing) {
                 AsyncArtwork(url: track.artworkURL(size: 300), size: 150, radius: 14)
                     .shadow(color: .black.opacity(0.15), radius: 8, y: 4)
-                    .scaleEffect(isPressed ? 0.95 : 1)
-                    .animation(.spring(duration: 0.2), value: isPressed)
 
                 // Play indicator
                 if isPlaying {
@@ -163,11 +215,6 @@ struct ForYouTrackCard: View {
                 }
             }
             .onTapGesture { onTap() }
-            .onLongPressGesture(minimumDuration: 0.4) {
-                onLongPress()
-            } onPressingChanged: { pressing in
-                isPressed = pressing
-            }
 
             // Track info
             VStack(alignment: .leading, spacing: 2) {

@@ -13,9 +13,16 @@ struct TasteProfileView: View {
 
     @State private var showResetAlert = false
 
+    // MARK: - Computed
+
     private var likedCount: Int { allSwiped.filter(\.isLiked).count }
     private var dislikedCount: Int { allSwiped.filter { !$0.isLiked }.count }
     private var totalCount: Int { allSwiped.count }
+
+    private var likeRate: Int {
+        guard totalCount > 0 else { return 0 }
+        return Int(Double(likedCount) / Double(totalCount) * 100)
+    }
 
     private var topGenres: [(name: String, count: Int)] {
         var counts: [String: Int] = [:]
@@ -37,19 +44,56 @@ struct TasteProfileView: View {
         return counts.sorted { $0.value > $1.value }.prefix(10).map { ($0.key, $0.value) }
     }
 
-    private var likeRate: Int {
-        guard totalCount > 0 else { return 0 }
-        return Int(Double(likedCount) / Double(totalCount) * 100)
+    private var recentActivity: [(day: String, count: Int)] {
+        let liked = allSwiped.filter(\.isLiked)
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "fr_FR")
+        formatter.dateFormat = "EEE"
+
+        var dayCounts: [Int: Int] = [:]
+        for song in liked {
+            guard let date = song.swipedAt else { continue }
+            let weekday = calendar.component(.weekday, from: date)
+            dayCounts[weekday, default: 0] += 1
+        }
+
+        let orderedDays = [2, 3, 4, 5, 6, 7, 1] // Lun -> Dim
+        return orderedDays.compactMap { day in
+            var comp = DateComponents()
+            comp.weekday = day
+            guard let date = calendar.nextDate(after: Date(), matching: comp, matchingPolicy: .nextTime) else { return nil }
+            let name = formatter.string(from: date).capitalized
+            return (day: name, count: dayCounts[day] ?? 0)
+        }
     }
+
+    private var listenStreak: Int {
+        let calendar = Calendar.current
+        let dates = Set(allSwiped.compactMap { $0.swipedAt }.map { calendar.startOfDay(for: $0) })
+        var streak = 0
+        var checkDate = calendar.startOfDay(for: Date())
+        while dates.contains(checkDate) {
+            streak += 1
+            guard let prev = calendar.date(byAdding: .day, value: -1, to: checkDate) else { break }
+            checkDate = prev
+        }
+        return streak
+    }
+
+    // MARK: - Body
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 24) {
-                // Stats cards
-                statsSection
-                    .padding(.top, 8)
-
+            VStack(spacing: 20) {
                 if likedCount > 0 {
+                    // Musical identity card
+                    identityCard
+                        .padding(.top, 8)
+
+                    // Stats row
+                    statsRow
+
                     // Energy profile
                     energySection
 
@@ -62,6 +106,14 @@ struct TasteProfileView: View {
                     if !topArtists.isEmpty {
                         artistsSection
                     }
+
+                    // Activity
+                    activitySection
+
+                    // Streak
+                    if listenStreak > 0 {
+                        streakBadge
+                    }
                 } else {
                     emptyProfile
                 }
@@ -69,6 +121,7 @@ struct TasteProfileView: View {
                 // Reset
                 if totalCount > 0 {
                     resetButton
+                        .padding(.top, 8)
                 }
             }
             .padding(.horizontal, 16)
@@ -85,9 +138,82 @@ struct TasteProfileView: View {
         }
     }
 
-    // MARK: - Stats
+    // MARK: - Identity Card
 
-    private var statsSection: some View {
+    private var identityCard: some View {
+        let profile = engine.buildTasteProfile()
+        let energy = profile.averageEnergy
+        let mainGenre = topGenres.first?.name ?? "Musique"
+        let persona: (title: String, subtitle: String, gradient: [Color])
+
+        if energy >= 0.75 {
+            persona = ("Flamme Musicale", "Ton énergie est explosive", [.red, .orange])
+        } else if energy >= 0.55 {
+            persona = ("Esprit Dynamique", "Tu vibres avec le rythme", [.orange, .yellow])
+        } else if energy >= 0.35 {
+            persona = ("Ame Équilibrée", "Tu navigue entre calme et énergie", [.teal, .cyan])
+        } else {
+            persona = ("Voyageur Zen", "La sérénité guide tes écoutes", [.indigo, .purple])
+        }
+
+        return VStack(spacing: 14) {
+            // Gradient header
+            ZStack {
+                LinearGradient(colors: persona.gradient + [.clear], startPoint: .topLeading, endPoint: .bottomTrailing)
+                    .frame(height: 100)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .opacity(0.3)
+
+                VStack(spacing: 6) {
+                    Text(persona.title)
+                        .font(.title2.bold())
+                    Text(persona.subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            HStack(spacing: 20) {
+                VStack(spacing: 2) {
+                    Text(mainGenre)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tint)
+                    Text("Genre favori")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Divider().frame(height: 24)
+
+                VStack(spacing: 2) {
+                    Text("\(topArtists.first?.name ?? "—")")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.pink)
+                        .lineLimit(1)
+                    Text("Artiste #1")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+
+                Divider().frame(height: 24)
+
+                VStack(spacing: 2) {
+                    Text("\(likedCount)")
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                        .foregroundStyle(.green)
+                    Text("Likes")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .padding(16)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Stats Row
+
+    private var statsRow: some View {
         HStack(spacing: 12) {
             statCard(value: "\(totalCount)", label: "Écoutés", icon: "headphones", color: .blue)
             statCard(value: "\(likedCount)", label: "Likés", icon: "heart.fill", color: .green)
@@ -147,7 +273,7 @@ struct TasteProfileView: View {
                     .font(.title)
                     .foregroundStyle(color)
 
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text(label)
                         .font(.headline)
 
@@ -157,11 +283,21 @@ struct TasteProfileView: View {
                             Capsule()
                                 .fill(.quaternary)
                             Capsule()
-                                .fill(color)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [color.opacity(0.7), color],
+                                        startPoint: .leading,
+                                        endPoint: .trailing
+                                    )
+                                )
                                 .frame(width: geo.size.width * energy)
                         }
                     }
-                    .frame(height: 6)
+                    .frame(height: 8)
+
+                    Text("\(Int(energy * 100))% d'énergie moyenne")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
         }
@@ -171,13 +307,19 @@ struct TasteProfileView: View {
 
     private var genresSection: some View {
         sectionCard(title: "Tes genres", icon: "guitars.fill") {
-            FlowLayout(spacing: 8) {
-                ForEach(topGenres, id: \.name) { genre in
-                    GenreChip(
-                        name: genre.name,
-                        count: genre.count,
-                        maxCount: topGenres.first?.count ?? 1
-                    )
+            VStack(spacing: 10) {
+                ForEach(Array(topGenres.enumerated()), id: \.element.name) { _, genre in
+                    HStack(spacing: 10) {
+                        Text(genre.name)
+                            .font(.callout.weight(.medium))
+                            .lineLimit(1)
+                            .frame(width: 110, alignment: .leading)
+
+                        GenreBarView(
+                            count: genre.count,
+                            maxCount: topGenres.first?.count ?? 1
+                        )
+                    }
                 }
             }
         }
@@ -190,10 +332,18 @@ struct TasteProfileView: View {
             VStack(spacing: 0) {
                 ForEach(Array(topArtists.enumerated()), id: \.element.name) { index, artist in
                     HStack(spacing: 12) {
-                        Text("\(index + 1)")
-                            .font(.caption.bold().monospacedDigit())
-                            .foregroundStyle(index < 3 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                            .frame(width: 22, alignment: .trailing)
+                        // Rank badge
+                        ZStack {
+                            if index < 3 {
+                                Circle()
+                                    .fill(medalColor(index).opacity(0.15))
+                                    .frame(width: 28, height: 28)
+                            }
+                            Text("\(index + 1)")
+                                .font(.caption.bold().monospacedDigit())
+                                .foregroundStyle(index < 3 ? medalColor(index) : .secondary)
+                        }
+                        .frame(width: 28)
 
                         Text(artist.name)
                             .font(.callout.weight(index < 3 ? .semibold : .regular))
@@ -213,6 +363,65 @@ struct TasteProfileView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Activity
+
+    private var activitySection: some View {
+        let maxDay = recentActivity.map(\.count).max() ?? 1
+
+        return sectionCard(title: "Ton activité", icon: "chart.bar.fill") {
+            HStack(alignment: .bottom, spacing: 8) {
+                ForEach(recentActivity, id: \.day) { item in
+                    VStack(spacing: 6) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.accentColor.gradient)
+                            .frame(
+                                height: max(4, CGFloat(item.count) / CGFloat(max(maxDay, 1)) * 60)
+                            )
+
+                        Text(item.day)
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 80)
+        }
+    }
+
+    // MARK: - Streak
+
+    private var streakBadge: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "flame.fill")
+                .font(.title2)
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(listenStreak) jour\(listenStreak > 1 ? "s" : "") de suite")
+                    .font(.callout.weight(.semibold))
+                Text("Continue comme ça !")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+        }
+        .padding(16)
+        .background(
+            LinearGradient(
+                colors: [.orange.opacity(0.1), .clear],
+                startPoint: .leading,
+                endPoint: .trailing
+            ),
+            in: RoundedRectangle(cornerRadius: 14)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 14)
+                .strokeBorder(.orange.opacity(0.2), lineWidth: 1)
+        )
     }
 
     // MARK: - Empty Profile
@@ -258,27 +467,41 @@ struct TasteProfileView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
     }
+
+    private func medalColor(_ index: Int) -> Color {
+        switch index {
+        case 0: .yellow
+        case 1: .gray
+        case 2: .orange
+        default: .secondary
+        }
+    }
 }
 
-// MARK: - Genre Chip
+// MARK: - Genre Bar View
 
-struct GenreChip: View {
-    let name: String
+struct GenreBarView: View {
     let count: Int
     let maxCount: Int
 
-    private var intensity: Double { Double(count) / Double(max(maxCount, 1)) }
+    private var ratio: CGFloat {
+        CGFloat(count) / CGFloat(max(maxCount, 1))
+    }
 
     var body: some View {
-        HStack(spacing: 4) {
-            Text(name)
-            Text("(\(count))")
-                .foregroundStyle(.secondary)
+        GeometryReader { geo in
+            Capsule()
+                .fill(Color.accentColor.gradient)
+                .frame(width: max(4, geo.size.width * ratio), height: 20)
+                .overlay(alignment: .trailing) {
+                    Text("\(count)")
+                        .font(.caption2.bold().monospacedDigit())
+                        .foregroundStyle(.white)
+                        .padding(.trailing, 6)
+                        .opacity(ratio > 0.2 ? 1 : 0)
+                }
         }
-        .font(.caption.weight(.medium))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 7)
-        .background(Color.accentColor.opacity(0.08 + intensity * 0.18), in: Capsule())
+        .frame(height: 20)
     }
 }
 

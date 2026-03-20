@@ -5,6 +5,7 @@ struct ContentView: View {
     @EnvironmentObject private var engine: RecommendationEngine
 
     @State private var selectedTab = 0
+    @State private var showNowPlaying = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -43,6 +44,11 @@ struct ContentView: View {
                 .safeAreaInset(edge: .bottom) { miniPlayerBar }
             }
         }
+        .fullScreenCover(isPresented: $showNowPlaying) {
+            NowPlayingView()
+                .environmentObject(player)
+                .environmentObject(engine)
+        }
     }
 
     // MARK: - Mini Player (only outside Discover)
@@ -50,7 +56,7 @@ struct ContentView: View {
     @ViewBuilder
     private var miniPlayerBar: some View {
         if player.currentTrack != nil {
-            MiniPlayerView()
+            MiniPlayerView(onTap: { showNowPlaying = true })
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .animation(.spring(duration: 0.3), value: player.currentTrack?.id)
         }
@@ -61,6 +67,7 @@ struct ContentView: View {
 
 struct MiniPlayerView: View {
     @EnvironmentObject private var player: AudioPlayerManager
+    var onTap: () -> Void
 
     var body: some View {
         VStack(spacing: 0) {
@@ -114,6 +121,8 @@ struct MiniPlayerView: View {
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
         .padding(.horizontal, 8)
         .padding(.bottom, 4)
+        .contentShape(Rectangle())
+        .onTapGesture { onTap() }
     }
 }
 

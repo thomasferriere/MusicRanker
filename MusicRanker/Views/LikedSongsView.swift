@@ -1,9 +1,28 @@
 import SwiftUI
 import CoreData
 
+// MARK: - Sort Options
+
+enum LikedSongsSortOption: String, CaseIterable {
+    case recent = "Récents"
+    case artist = "Artiste"
+    case genre = "Genre"
+    case title = "Titre"
+
+    var icon: String {
+        switch self {
+        case .recent: "clock"
+        case .artist: "person"
+        case .genre: "guitars"
+        case .title: "textformat.abc"
+        }
+    }
+}
+
 struct LikedSongsView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject private var player: AudioPlayerManager
+    @EnvironmentObject private var engine: RecommendationEngine
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \SwipedSongEntity.swipedAt, ascending: false)],
@@ -13,22 +32,58 @@ struct LikedSongsView: View {
     private var likedSongs: FetchedResults<SwipedSongEntity>
 
     @State private var searchText = ""
-    @State private var selectedTrack: iTunesTrack?
+    @State private var sortOption: LikedSongsSortOption = .recent
+    @State private var selectedGenreFilter: String?
 
-    private var filteredSongs: [SwipedSongEntity] {
-        guard !searchText.isEmpty else { return Array(likedSongs) }
-        return likedSongs.filter {
-            ($0.title ?? "").localizedCaseInsensitiveContains(searchText) ||
-            ($0.artistName ?? "").localizedCaseInsensitiveContains(searchText) ||
-            ($0.genre ?? "").localizedCaseInsensitiveContains(searchText)
+    // MARK: - Computed
+
+    private var allGenres: [String] {
+        var counts: [String: Int] = [:]
+        for song in likedSongs {
+            if let genre = song.genre, !genre.isEmpty {
+                counts[genre, default: 0] += 1
+            }
         }
+        return counts.sorted { $0.value > $1.value }.map(\.key)
+    }
+
+    private var filteredAndSortedSongs: [SwipedSongEntity] {
+        var songs = Array(likedSongs)
+
+        // Genre filter
+        if let genre = selectedGenreFilter {
+            songs = songs.filter { $0.genre == genre }
+        }
+
+        // Search filter
+        if !searchText.isEmpty {
+            songs = songs.filter {
+                ($0.title ?? "").localizedCaseInsensitiveContains(searchText) ||
+                ($0.artistName ?? "").localizedCaseInsensitiveContains(searchText) ||
+                ($0.genre ?? "").localizedCaseInsensitiveContains(searchText)
+            }
+        }
+
+        // Sort
+        switch sortOption {
+        case .recent:
+            songs.sort { ($0.swipedAt ?? .distantPast) > ($1.swipedAt ?? .distantPast) }
+        case .artist:
+            songs.sort { ($0.artistName ?? "") < ($1.artistName ?? "") }
+        case .genre:
+            songs.sort { ($0.genre ?? "") < ($1.genre ?? "") }
+        case .title:
+            songs.sort { ($0.title ?? "") < ($1.title ?? "") }
+        }
+
+        return songs
     }
 
     var body: some View {
         Group {
             if likedSongs.isEmpty {
                 emptyState
-            } else if filteredSongs.isEmpty {
+            } else if filteredAndSortedSongs.isEmpty {
                 ContentUnavailableView.search(text: searchText)
             } else {
                 songsList
@@ -40,55 +95,70 @@ struct LikedSongsView: View {
     // MARK: - Songs List
 
     private var songsList: some View {
-        ScrollView {
-            // Stats header
-            likeStats
-                .padding(.horizontal, 16)
-                .padding(.top, 8)
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                // Stats header
+                statsHeader
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 4)
 
-            LazyVStack(spacing: 0) {
-                ForEach(filteredSongs, id: \.objectID) { song in
-                    LikedSongRow(song: song)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            HapticManager.impact(.light)
-                            playSong(song)
-                        }
-                        .contextMenu {
-                            if song.previewURL != nil {
-                                Button {
-                                    playSong(song)
+                // Genre filter chips
+                if allGenres.count > 1 {
+                    genreFilterChips
+                        .padding(.bottom, 8)
+                }
+
+                // Sort bar + shuffle
+                sortBar
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+
+                // Songs
+                LazyVStack(spacing: 0) {
+                    ForEach(filteredAndSortedSongs, id: \.objectID) { song in
+                        LikedSongRow(song: song)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                HapticManager.impact(.light)
+                                playSong(song)
+                            }
+                            .contextMenu {
+                                if song.previewURL != nil {
+                                    Button {
+                                        playSong(song)
+                                    } label: {
+                                        Label("Écouter", systemImage: "play.fill")
+                                    }
+                                }
+
+                                Button(role: .destructive) {
+                                    HapticManager.impact(.rigid)
+                                    withAnimation {
+                                        viewContext.delete(song)
+                                        try? viewContext.save()
+                                    }
                                 } label: {
-                                    Label("Écouter", systemImage: "play.fill")
+                                    Label("Retirer", systemImage: "heart.slash")
                                 }
                             }
 
-                            Button(role: .destructive) {
-                                HapticManager.impact(.rigid)
-                                withAnimation {
-                                    viewContext.delete(song)
-                                    try? viewContext.save()
-                                }
-                            } label: {
-                                Label("Retirer", systemImage: "heart.slash")
-                            }
+                        if song.objectID != filteredAndSortedSongs.last?.objectID {
+                            Divider()
+                                .padding(.leading, 72)
                         }
-
-                    if song.objectID != filteredSongs.last?.objectID {
-                        Divider()
-                            .padding(.leading, 72)
                     }
                 }
+                .padding(.bottom, 100)
             }
-            .padding(.bottom, 100)
         }
     }
 
-    // MARK: - Stats
+    // MARK: - Stats Header
 
-    private var likeStats: some View {
+    private var statsHeader: some View {
         HStack(spacing: 16) {
             VStack(spacing: 2) {
                 Text("\(likedSongs.count)")
@@ -99,7 +169,6 @@ struct LikedSongsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            // Genre breakdown
             let genres = topGenres(3)
             if !genres.isEmpty {
                 Divider().frame(height: 32)
@@ -118,6 +187,100 @@ struct LikedSongsView: View {
         }
         .padding(12)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    // MARK: - Genre Filter
+
+    private var genreFilterChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                // All chip
+                Button {
+                    withAnimation(.spring(duration: 0.25)) { selectedGenreFilter = nil }
+                } label: {
+                    Text("Tout")
+                        .font(.caption.weight(.medium))
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background(
+                            selectedGenreFilter == nil ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary),
+                            in: Capsule()
+                        )
+                        .foregroundStyle(selectedGenreFilter == nil ? .white : .primary)
+                }
+                .buttonStyle(.plain)
+
+                ForEach(allGenres, id: \.self) { genre in
+                    Button {
+                        withAnimation(.spring(duration: 0.25)) {
+                            selectedGenreFilter = selectedGenreFilter == genre ? nil : genre
+                        }
+                    } label: {
+                        Text(genre)
+                            .font(.caption.weight(.medium))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 7)
+                            .background(
+                                selectedGenreFilter == genre ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary),
+                                in: Capsule()
+                            )
+                            .foregroundStyle(selectedGenreFilter == genre ? .white : .primary)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 16)
+        }
+    }
+
+    // MARK: - Sort Bar
+
+    private var sortBar: some View {
+        HStack(spacing: 12) {
+            // Sort picker
+            Menu {
+                ForEach(LikedSongsSortOption.allCases, id: \.self) { option in
+                    Button {
+                        withAnimation(.spring(duration: 0.25)) { sortOption = option }
+                    } label: {
+                        Label(option.rawValue, systemImage: option.icon)
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .font(.caption2.weight(.semibold))
+                    Text(sortOption.rawValue)
+                        .font(.caption.weight(.medium))
+                }
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            // Shuffle play
+            Button {
+                HapticManager.impact(.medium)
+                shufflePlay()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "shuffle")
+                        .font(.caption2.weight(.bold))
+                    Text("Shuffle")
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(.tint, in: Capsule())
+            }
+            .buttonStyle(.plain)
+
+            // Count
+            Text("\(filteredAndSortedSongs.count) titre\(filteredAndSortedSongs.count > 1 ? "s" : "")")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
     }
 
     // MARK: - Empty
@@ -157,6 +320,13 @@ struct LikedSongsView: View {
             trackNumber: nil
         )
         player.forcePlay(track: track)
+    }
+
+    private func shufflePlay() {
+        let songs = filteredAndSortedSongs
+        guard !songs.isEmpty else { return }
+        let random = songs.randomElement()!
+        playSong(random)
     }
 
     private func topGenres(_ count: Int) -> [String] {

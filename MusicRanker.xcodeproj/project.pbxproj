@@ -23,6 +23,7 @@
 		EE000001000000000000003 /* iTunesService.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE000001000000000000002 /* iTunesService.swift */; };
 		EE000001000000000000005 /* ColorExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE000001000000000000004 /* ColorExtractor.swift */; };
 		EE000001000000000000007 /* TrackDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE000001000000000000006 /* TrackDetailView.swift */; };
+		FF000001000000000000002 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000001000000000000001 /* NowPlayingView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +46,7 @@
 		EE000001000000000000002 /* iTunesService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = iTunesService.swift; sourceTree = "<group>"; };
 		EE000001000000000000004 /* ColorExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorExtractor.swift; sourceTree = "<group>"; };
 		EE000001000000000000006 /* TrackDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackDetailView.swift; sourceTree = "<group>"; };
+		FF000001000000000000001 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -82,6 +84,7 @@
 				EE000001000000000000006 /* TrackDetailView.swift */,
 				DD000001000000000000003 /* LikedSongsView.swift */,
 				DD000001000000000000005 /* TasteProfileView.swift */,
+				FF000001000000000000001 /* NowPlayingView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -223,6 +226,7 @@
 				EE000001000000000000003 /* iTunesService.swift in Sources */,
 				EE000001000000000000005 /* ColorExtractor.swift in Sources */,
 				EE000001000000000000007 /* TrackDetailView.swift in Sources */,
+				FF000001000000000000002 /* NowPlayingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
