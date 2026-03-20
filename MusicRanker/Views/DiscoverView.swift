@@ -10,13 +10,13 @@ struct DiscoverView: View {
     @State private var detailTrack: iTunesTrack?
     @State private var playlistTarget: iTunesTrack?
 
-    // Rich sections
     @State private var discoverSections: [DiscoverSection] = []
     @State private var isLoadingSections = false
+    @State private var heroHeight: CGFloat = 540
 
     var body: some View {
         ZStack {
-            // Dynamic gradient background
+            // Dynamic gradient background — extends behind everything
             LinearGradient(
                 colors: gradientColors + [Color.black],
                 startPoint: .topLeading,
@@ -61,27 +61,22 @@ struct DiscoverView: View {
     private var mainContent: some View {
         ScrollView(showsIndicators: false) {
             LazyVStack(spacing: 0) {
-                // Hero card zone
+                // Immersive hero zone (card + integrated actions)
                 heroZone
-                    .padding(.top, 8)
 
-                // Action buttons — tight below card
-                actionPill
-                    .padding(.top, 10)
-
-                // Trending (real data — prominent section)
+                // Trending — real data, tight transition
                 if !trendingService.trendingTracks.isEmpty {
                     trendingSection
-                        .padding(.top, 28)
+                        .padding(.top, 20)
                 }
 
                 // Personalized sections
                 if !discoverSections.isEmpty {
                     personalizedSections
-                        .padding(.top, 24)
+                        .padding(.top, 22)
                 } else if isLoadingSections {
                     loadingSectionsPlaceholder
-                        .padding(.top, 24)
+                        .padding(.top, 22)
                 }
 
                 Spacer(minLength: 100)
@@ -89,91 +84,45 @@ struct DiscoverView: View {
         }
     }
 
-    // MARK: - Hero Card Zone
+    // MARK: - Immersive Hero Zone
 
     private var heroZone: some View {
         GeometryReader { geo in
-            let cardWidth = geo.size.width - 64
-            let cardHeight = cardWidth * 1.28
+            let cardWidth = geo.size.width - 32 // Near full-width (16pt each side)
+            let cardHeight = min(cardWidth * 1.35, geo.size.height * 0.72)
 
             ZStack {
                 ForEach(Array(engine.cards.prefix(3).enumerated().reversed()), id: \.element.id) { index, track in
                     let isTop = index == 0
-                    HeroSwipeCard(
+                    ImmersiveHeroCard(
                         track: track,
                         width: cardWidth,
                         height: cardHeight,
                         onSwipe: { liked in handleSwipe(track: track, liked: liked) },
                         onTapArtwork: { handleArtworkTap(track: track) },
-                        onLongPress: { detailTrack = track }
+                        onLongPress: { detailTrack = track },
+                        onLike: { handleSwipe(track: track, liked: true) },
+                        onDislike: { handleSwipe(track: track, liked: false) }
                     )
-                    .scaleEffect(isTop ? 1.0 : 1.0 - CGFloat(index) * 0.04)
-                    .offset(y: isTop ? 0 : CGFloat(index) * 8)
-                    .opacity(isTop ? 1 : 1 - CGFloat(index) * 0.15)
+                    .scaleEffect(isTop ? 1.0 : 1.0 - CGFloat(index) * 0.035)
+                    .offset(y: isTop ? 0 : CGFloat(index) * 10)
+                    .opacity(isTop ? 1 : 0.7 - CGFloat(index) * 0.2)
                     .allowsHitTesting(isTop)
                 }
             }
             .frame(maxWidth: .infinity)
             .onAppear {
-                let total = cardHeight + 10 + 44 // card + gap + buttons
-                cardZoneHeight = min(total, 560)
+                heroHeight = cardHeight + 12
             }
         }
-        .frame(height: cardZoneHeight)
+        .frame(height: heroHeight)
     }
 
-    @State private var cardZoneHeight: CGFloat = 520
-
-    // MARK: - Action Pill (glass container, close to card)
-
-    private var actionPill: some View {
-        HStack(spacing: 36) {
-            actionButton(icon: "xmark", color: .red) {
-                if let track = engine.cards.first {
-                    handleSwipe(track: track, liked: false)
-                }
-            }
-
-            actionButton(icon: "heart.fill", color: .green) {
-                if let track = engine.cards.first {
-                    handleSwipe(track: track, liked: true)
-                }
-            }
-        }
-        .padding(.horizontal, 28)
-        .padding(.vertical, 10)
-        .background(.ultraThinMaterial.opacity(0.6), in: Capsule())
-        .overlay {
-            Capsule()
-                .strokeBorder(.white.opacity(0.08), lineWidth: 1)
-        }
-    }
-
-    private func actionButton(icon: String, color: Color, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundStyle(color)
-                .frame(width: 44, height: 44)
-                .background {
-                    Circle()
-                        .fill(color.opacity(0.12))
-                }
-                .overlay {
-                    Circle()
-                        .strokeBorder(color.opacity(0.25), lineWidth: 1.5)
-                }
-        }
-        .buttonStyle(ScaleButtonStyle())
-    }
-
-    // MARK: - Trending Section (prominent)
+    // MARK: - Trending Section
 
     private var trendingSection: some View {
         VStack(alignment: .leading, spacing: 14) {
-            // Header
             HStack(spacing: 10) {
-                // Icon
                 Image(systemName: "chart.line.uptrend.xyaxis")
                     .font(.subheadline.weight(.bold))
                     .foregroundStyle(.orange)
@@ -183,7 +132,6 @@ struct DiscoverView: View {
                         Text("Tendances")
                             .font(.headline.weight(.bold))
                             .foregroundStyle(.white)
-
                         Text(countryFlag(trendingService.countryCode))
                             .font(.subheadline)
                     }
@@ -191,12 +139,10 @@ struct DiscoverView: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.4))
                 }
-
                 Spacer()
             }
             .padding(.horizontal, 24)
 
-            // Cards
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 14) {
                     ForEach(Array(trendingService.trendingTracks.prefix(15).enumerated()), id: \.element.id) { index, track in
@@ -208,9 +154,7 @@ struct DiscoverView: View {
                                 player.forcePlay(track: track)
                             }
                         }
-                        .contextMenu {
-                            trackContextMenu(track: track)
-                        }
+                        .contextMenu { trackContextMenu(track: track) }
                     }
                 }
                 .padding(.horizontal, 24)
@@ -230,7 +174,6 @@ struct DiscoverView: View {
 
     private func discoverSectionView(_ section: DiscoverSection) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Header
             HStack(spacing: 8) {
                 Image(systemName: section.icon)
                     .font(.caption.weight(.bold))
@@ -252,7 +195,6 @@ struct DiscoverView: View {
             }
             .padding(.horizontal, 24)
 
-            // Horizontal cards
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHStack(spacing: 12) {
                     ForEach(section.tracks) { track in
@@ -264,9 +206,7 @@ struct DiscoverView: View {
                                 player.forcePlay(track: track)
                             }
                         }
-                        .contextMenu {
-                            trackContextMenu(track: track)
-                        }
+                        .contextMenu { trackContextMenu(track: track) }
                     }
                 }
                 .padding(.horizontal, 24)
@@ -439,7 +379,6 @@ struct DiscoverView: View {
         let year = Calendar.current.component(.year, from: Date())
         var sections: [DiscoverSection] = []
 
-        // 1. Nouveautés pour toi
         if let topGenre = profile.topGenres.first?.name {
             async let newTracks = service.search(term: "\(topGenre) \(year) new", limit: 20)
             let filtered = await newTracks.filter { $0.previewURL != nil }
@@ -454,7 +393,6 @@ struct DiscoverView: View {
             }
         }
 
-        // 2. Artistes similaires
         if let topArtist = profile.topArtists.first {
             let tracks = await service.search(term: "\(topArtist.name) similar", limit: 20)
             let filtered = tracks.filter { $0.previewURL != nil && $0.artistName.lowercased() != topArtist.name.lowercased() }
@@ -469,7 +407,6 @@ struct DiscoverView: View {
             }
         }
 
-        // 3. Par ambiance
         let (moodLabel, moodTerm) = moodForEnergy(profile.averageEnergy)
         let moodTracks = await service.search(term: moodTerm, limit: 15)
         let moodFiltered = moodTracks.filter { $0.previewURL != nil }.shuffled()
@@ -483,7 +420,6 @@ struct DiscoverView: View {
             ))
         }
 
-        // 4. Pépites récentes
         async let pepite1 = service.search(term: "indie \(year) new", limit: 12)
         async let pepite2 = service.search(term: "underground \(year)", limit: 12)
         let allPepites = await (pepite1 + pepite2).filter { $0.previewURL != nil }.shuffled()
@@ -497,7 +433,6 @@ struct DiscoverView: View {
             ))
         }
 
-        // 5. À écouter ensuite
         if profile.topGenres.count >= 2 {
             let secondGenre = profile.topGenres[1].name
             let tracks = await service.search(term: "\(secondGenre) \(year)", limit: 15)
@@ -513,7 +448,6 @@ struct DiscoverView: View {
             }
         }
 
-        // 6. Mix varié
         let mixGenres = ["afrobeats", "k-pop", "jazz", "reggaeton", "funk", "soul", "techno", "bossa nova"]
         let unexplored = mixGenres.filter { genre in
             !profile.topGenres.contains { $0.name.lowercased() == genre }
@@ -532,7 +466,6 @@ struct DiscoverView: View {
             }
         }
 
-        // 7. Redécouvrir
         if profile.topArtists.count >= 2 {
             let artist = profile.topArtists[min(1, profile.topArtists.count - 1)]
             if let artistId = artist.ids.first {
@@ -584,15 +517,17 @@ struct DiscoverSection: Identifiable {
     }
 }
 
-// MARK: - Hero Swipe Card (full-bleed artwork with overlay)
+// MARK: - Immersive Hero Card (artwork-dominant, actions integrated)
 
-struct HeroSwipeCard: View {
+struct ImmersiveHeroCard: View {
     let track: iTunesTrack
     let width: CGFloat
     let height: CGFloat
     let onSwipe: (Bool) -> Void
     let onTapArtwork: () -> Void
     let onLongPress: () -> Void
+    let onLike: () -> Void
+    let onDislike: () -> Void
 
     @EnvironmentObject private var player: AudioPlayerManager
     @State private var offset: CGSize = .zero
@@ -607,43 +542,42 @@ struct HeroSwipeCard: View {
             // Full-bleed artwork
             artworkLayer
 
-            // Bottom gradient overlay with track info
-            infoOverlay
+            // Bottom zone: gradient + info + actions
+            bottomOverlay
         }
         .frame(width: width, height: height)
-        .clipShape(RoundedRectangle(cornerRadius: 24))
-        // Deep layered shadow
-        .shadow(color: .black.opacity(0.5), radius: 30, y: 12)
-        .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
+        .clipShape(RoundedRectangle(cornerRadius: 28))
+        .shadow(color: .black.opacity(0.55), radius: 35, y: 14)
+        .shadow(color: .black.opacity(0.15), radius: 6, y: 3)
         // Swipe border glow
         .overlay {
-            RoundedRectangle(cornerRadius: 24)
-                .strokeBorder(swipeBorderGradient, lineWidth: 2.5)
+            RoundedRectangle(cornerRadius: 28)
+                .strokeBorder(swipeBorderColor, lineWidth: 2.5)
         }
-        // Swipe labels
+        // LIKE / NOPE labels
         .overlay(alignment: .topLeading) {
-            swipeLabel("NOPE", color: .red)
-                .opacity(max(0, -swipeProgress - 0.2))
-                .padding(20)
+            swipeStamp("NOPE", color: .red)
+                .opacity(max(0, -swipeProgress - 0.15))
+                .padding(24)
         }
         .overlay(alignment: .topTrailing) {
-            swipeLabel("LIKE", color: .green)
-                .opacity(max(0, swipeProgress - 0.2))
-                .padding(20)
+            swipeStamp("LIKE", color: .green)
+                .opacity(max(0, swipeProgress - 0.15))
+                .padding(24)
         }
-        // Swipe transform
-        .offset(x: offset.width, y: offset.height * 0.2)
-        .rotationEffect(.degrees(Double(offset.width) / 28))
-        .scaleEffect(isPressed ? 0.97 : 1.0)
+        // Transform
+        .offset(x: offset.width, y: offset.height * 0.15)
+        .rotationEffect(.degrees(Double(offset.width) / 30))
+        .scaleEffect(isPressed ? 0.975 : 1.0)
         .animation(.spring(duration: 0.2), value: isPressed)
         .gesture(swipeGesture)
     }
 
-    // MARK: - Artwork Layer
+    // MARK: - Artwork
 
     private var artworkLayer: some View {
         Group {
-            if let url = track.artworkURL(size: 800) {
+            if let url = track.artworkURL(size: 900) {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let img):
@@ -656,7 +590,11 @@ struct HeroSwipeCard: View {
                         artworkPlaceholder
                     default:
                         artworkPlaceholder
-                            .overlay { ProgressView().tint(.white.opacity(0.5)) }
+                            .overlay {
+                                ProgressView()
+                                    .tint(.white.opacity(0.4))
+                                    .scaleEffect(1.2)
+                            }
                     }
                 }
             } else {
@@ -674,103 +612,141 @@ struct HeroSwipeCard: View {
 
     private var artworkPlaceholder: some View {
         Rectangle()
-            .fill(.gray.opacity(0.15))
+            .fill(.gray.opacity(0.12))
             .overlay {
                 Image(systemName: "music.note")
-                    .font(.system(size: 44))
-                    .foregroundStyle(.white.opacity(0.2))
+                    .font(.system(size: 48))
+                    .foregroundStyle(.white.opacity(0.15))
             }
     }
 
-    // MARK: - Info Overlay (gradient + text + progress)
+    // MARK: - Bottom Overlay (info + progress + actions — all integrated)
 
-    private var infoOverlay: some View {
+    private var bottomOverlay: some View {
         VStack(spacing: 0) {
             Spacer()
 
-            VStack(spacing: 6) {
-                // Track info
-                VStack(spacing: 4) {
+            VStack(spacing: 10) {
+                // Track info — centered, breathing
+                VStack(spacing: 5) {
                     Text(track.title)
-                        .font(.title3.weight(.bold))
+                        .font(.title2.weight(.bold))
                         .lineLimit(2)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+                        .shadow(color: .black.opacity(0.5), radius: 6, y: 2)
 
                     Text(track.artistName)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.8))
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.white.opacity(0.85))
                         .lineLimit(1)
-                        .shadow(color: .black.opacity(0.3), radius: 3, y: 1)
+                        .shadow(color: .black.opacity(0.4), radius: 4, y: 1)
 
-                    // Genre + year pill
-                    HStack(spacing: 6) {
+                    HStack(spacing: 8) {
                         if let genre = track.genre {
                             Text(genre)
                                 .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
+                                .padding(.horizontal, 9)
+                                .padding(.vertical, 3.5)
                                 .background(.white.opacity(0.15), in: Capsule())
                                 .foregroundStyle(.white.opacity(0.9))
                         }
                         if let year = track.releaseYear {
                             Text(year)
-                                .font(.caption2)
-                                .foregroundStyle(.white.opacity(0.5))
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.white.opacity(0.45))
                         }
                     }
                 }
 
-                // Play indicator
+                // Progress bar + waveform indicator
                 if isCurrentTrack {
-                    HStack(spacing: 6) {
-                        Image(systemName: isPlayingThis ? "waveform" : "play.fill")
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(.white.opacity(0.7))
-                            .symbolEffect(.variableColor.iterative, isActive: isPlayingThis)
-                        Text(isPlayingThis ? "En cours" : "En pause")
-                            .font(.caption2.weight(.medium))
+                    HStack(spacing: 10) {
+                        // Subtle waveform (no text)
+                        Image(systemName: isPlayingThis ? "waveform" : "pause.fill")
+                            .font(.system(size: 10, weight: .bold))
                             .foregroundStyle(.white.opacity(0.5))
-                    }
-                    .padding(.top, 2)
-                }
+                            .symbolEffect(.variableColor.iterative, isActive: isPlayingThis)
+                            .frame(width: 16)
 
-                // Progress bar (integrated)
-                if isCurrentTrack {
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule()
-                                .fill(.white.opacity(0.15))
-                                .frame(height: 3)
-                            Capsule()
-                                .fill(.white.opacity(0.7))
-                                .frame(width: max(0, geo.size.width * player.progress), height: 3)
-                                .animation(.linear(duration: 0.25), value: player.progress)
+                        // Progress bar
+                        GeometryReader { geo in
+                            ZStack(alignment: .leading) {
+                                Capsule()
+                                    .fill(.white.opacity(0.15))
+                                    .frame(height: 3)
+                                Capsule()
+                                    .fill(.white.opacity(0.65))
+                                    .frame(width: max(0, geo.size.width * player.progress), height: 3)
+                                    .animation(.linear(duration: 0.25), value: player.progress)
+                            }
+                        }
+                        .frame(height: 3)
+
+                        // Duration
+                        if let dur = track.formattedDuration {
+                            Text(dur)
+                                .font(.system(size: 9, weight: .medium).monospacedDigit())
+                                .foregroundStyle(.white.opacity(0.35))
                         }
                     }
-                    .frame(height: 3)
-                    .padding(.horizontal, 8)
-                    .padding(.top, 6)
+                    .padding(.horizontal, 4)
                 }
+
+                // Integrated action buttons
+                HStack(spacing: 0) {
+                    // Dislike
+                    Button {
+                        onDislike()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .frame(width: 50, height: 50)
+                            .background(.white.opacity(0.08), in: Circle())
+                            .overlay {
+                                Circle().strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(ScaleButtonStyle())
+
+                    Spacer()
+
+                    // Like
+                    Button {
+                        onLike()
+                    } label: {
+                        Image(systemName: "heart.fill")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .frame(width: 50, height: 50)
+                            .background(.white.opacity(0.08), in: Circle())
+                            .overlay {
+                                Circle().strokeBorder(.white.opacity(0.1), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(ScaleButtonStyle())
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 2)
             }
             .padding(.horizontal, 20)
-            .padding(.bottom, 20)
-            .padding(.top, 60)
+            .padding(.bottom, 16)
+            .padding(.top, 80)
             .background(
                 LinearGradient(
                     stops: [
                         .init(color: .clear, location: 0),
-                        .init(color: .black.opacity(0.3), location: 0.3),
-                        .init(color: .black.opacity(0.7), location: 0.7),
-                        .init(color: .black.opacity(0.85), location: 1.0),
+                        .init(color: .black.opacity(0.2), location: 0.15),
+                        .init(color: .black.opacity(0.55), location: 0.45),
+                        .init(color: .black.opacity(0.8), location: 0.75),
+                        .init(color: .black.opacity(0.92), location: 1.0),
                     ],
                     startPoint: .top,
                     endPoint: .bottom
                 )
             )
         }
-        .allowsHitTesting(false)
     }
 
     // MARK: - Swipe Gesture
@@ -779,53 +755,54 @@ struct HeroSwipeCard: View {
         DragGesture(minimumDistance: 15)
             .onChanged { value in offset = value.translation }
             .onEnded { value in
-                let threshold: CGFloat = 110
+                let threshold: CGFloat = 100
                 let velocity = value.predictedEndTranslation.width
-                if value.translation.width > threshold || velocity > 400 {
+                if value.translation.width > threshold || velocity > 350 {
                     animateOff(direction: 1); onSwipe(true)
-                } else if value.translation.width < -threshold || velocity < -400 {
+                } else if value.translation.width < -threshold || velocity < -350 {
                     animateOff(direction: -1); onSwipe(false)
                 } else {
-                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) { offset = .zero }
+                    withAnimation(.spring(duration: 0.35, bounce: 0.12)) { offset = .zero }
                 }
             }
     }
 
     private func animateOff(direction: CGFloat) {
-        withAnimation(.easeOut(duration: 0.28)) {
-            offset = CGSize(width: direction * 500, height: direction * 30)
+        withAnimation(.easeOut(duration: 0.25)) {
+            offset = CGSize(width: direction * 500, height: direction * 20)
         }
     }
 
     // MARK: - Helpers
 
-    private func swipeLabel(_ text: String, color: Color) -> some View {
+    private func swipeStamp(_ text: String, color: Color) -> some View {
         Text(text)
             .font(.title2.bold())
+            .tracking(2)
             .foregroundStyle(color)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 6))
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
             .overlay {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(color, lineWidth: 3)
             }
-            .rotationEffect(.degrees(text == "NOPE" ? -15 : 15))
-            .shadow(color: color.opacity(0.4), radius: 8, y: 2)
+            .rotationEffect(.degrees(text == "NOPE" ? -18 : 18))
+            .shadow(color: color.opacity(0.35), radius: 10, y: 2)
     }
 
-    private var swipeBorderGradient: some ShapeStyle {
-        if swipeProgress > 0.3 {
-            AnyShapeStyle(.green.opacity(Double(swipeProgress) * 0.7))
-        } else if swipeProgress < -0.3 {
-            AnyShapeStyle(.red.opacity(Double(-swipeProgress) * 0.7))
+    private var swipeBorderColor: some ShapeStyle {
+        if swipeProgress > 0.25 {
+            AnyShapeStyle(.green.opacity(Double(swipeProgress) * 0.8))
+        } else if swipeProgress < -0.25 {
+            AnyShapeStyle(.red.opacity(Double(-swipeProgress) * 0.8))
         } else {
-            AnyShapeStyle(.white.opacity(0.06))
+            AnyShapeStyle(.white.opacity(0.05))
         }
     }
 }
 
-// MARK: - Trending Card (artwork-based with prominent rank)
+// MARK: - Trending Card
 
 struct TrendingCard: View {
     let track: iTunesTrack
@@ -833,17 +810,14 @@ struct TrendingCard: View {
     let onTap: () -> Void
 
     @EnvironmentObject private var player: AudioPlayerManager
-
     private var isPlaying: Bool { player.isCurrentlyPlaying(id: track.id) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Square artwork with rank badge
             ZStack {
                 AsyncArtwork(url: track.artworkURL(size: 400), size: 150, radius: 14)
                     .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
 
-                // Playing indicator
                 if isPlaying {
                     VStack {
                         Spacer()
@@ -860,7 +834,6 @@ struct TrendingCard: View {
                     }
                 }
 
-                // Rank badge — top left, large
                 VStack {
                     HStack {
                         Text("\(rank)")
@@ -886,7 +859,6 @@ struct TrendingCard: View {
             .frame(width: 150, height: 150)
             .onTapGesture { onTap() }
 
-            // Info
             VStack(alignment: .leading, spacing: 2) {
                 Text(track.title)
                     .font(.caption.weight(.semibold))
@@ -909,7 +881,6 @@ struct DiscoverTrackCard: View {
     let onTap: () -> Void
 
     @EnvironmentObject private var player: AudioPlayerManager
-
     private var isPlaying: Bool { player.isCurrentlyPlaying(id: track.id) }
 
     var body: some View {
