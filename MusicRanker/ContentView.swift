@@ -65,7 +65,7 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Mini Player
+    // MARK: - Mini Player (compact)
 
     @ViewBuilder
     private var miniPlayerBar: some View {
@@ -77,7 +77,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Mini Player
+// MARK: - Compact Mini Player
 
 struct MiniPlayerView: View {
     @EnvironmentObject private var player: AudioPlayerManager
@@ -85,21 +85,25 @@ struct MiniPlayerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Progress
+            // Ultra-thin progress line
             GeometryReader { geo in
-                Rectangle()
-                    .fill(.tint.opacity(0.6))
-                    .frame(width: geo.size.width * player.progress, height: 2)
-                    .animation(.linear(duration: 0.25), value: player.progress)
+                ZStack(alignment: .leading) {
+                    Rectangle()
+                        .fill(.white.opacity(0.06))
+                    Rectangle()
+                        .fill(.tint)
+                        .frame(width: geo.size.width * player.progress)
+                        .animation(.linear(duration: 0.25), value: player.progress)
+                }
             }
             .frame(height: 2)
 
             HStack(spacing: 10) {
                 if let track = player.currentTrack {
                     AsyncArtwork(
-                        url: track.artworkURL(size: 120),
-                        size: 42,
-                        radius: 8
+                        url: track.artworkURL(size: 100),
+                        size: 36,
+                        radius: 7
                     )
 
                     VStack(alignment: .leading, spacing: 1) {
@@ -118,23 +122,23 @@ struct MiniPlayerView: View {
                     Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                         .font(.callout.weight(.semibold))
                         .contentTransition(.symbolEffect(.replace))
-                        .frame(width: 36, height: 36)
+                        .frame(width: 32, height: 32)
                 }
                 .tint(.primary)
 
                 Button { player.stop() } label: {
                     Image(systemName: "xmark")
-                        .font(.callout)
-                        .frame(width: 36, height: 36)
+                        .font(.caption.weight(.medium))
+                        .frame(width: 28, height: 28)
                 }
                 .tint(.secondary)
             }
             .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
         }
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
         .padding(.horizontal, 8)
-        .padding(.bottom, 4)
+        .padding(.bottom, 2)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
     }

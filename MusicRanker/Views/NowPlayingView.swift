@@ -111,7 +111,7 @@ struct NowPlayingView: View {
                 if value.translation.height > 150 || value.predictedEndTranslation.height > 300 {
                     // Dismiss
                     withAnimation(.easeOut(duration: 0.25)) {
-                        dragOffset = UIScreen.main.bounds.height
+                        dragOffset = 1000
                     }
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
                         dismiss()
@@ -167,7 +167,7 @@ struct NowPlayingView: View {
                     .shadow(color: .black.opacity(0.4), radius: 30, y: 15)
             } else {
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(.quaternary)
+                    .fill(.gray.opacity(0.15))
                     .frame(width: 300, height: 300)
             }
         }

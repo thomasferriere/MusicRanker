@@ -1,10 +1,9 @@
 import SwiftUI
 import CoreData
 
-/// Bibliothèque premium — Likes + Playlists
+/// Bibliotheque premium -- Likes + Playlists
 struct LibraryView: View {
     @State private var selectedSection: LibrarySection = .likes
-    @State private var searchText = ""
 
     enum LibrarySection: String, CaseIterable {
         case likes = "Likes"
@@ -13,7 +12,7 @@ struct LibraryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Segment picker
+            // Segment picker (compact)
             Picker("Section", selection: $selectedSection) {
                 ForEach(LibrarySection.allCases, id: \.self) { section in
                     Text(section.rawValue).tag(section)
@@ -21,8 +20,8 @@ struct LibraryView: View {
             }
             .pickerStyle(.segmented)
             .padding(.horizontal, 16)
-            .padding(.top, 8)
-            .padding(.bottom, 8)
+            .padding(.top, 4)
+            .padding(.bottom, 6)
 
             switch selectedSection {
             case .likes:
@@ -45,6 +44,11 @@ struct PlaylistsView: View {
     @State private var editingPlaylistId: String?
     @State private var editName = ""
     @State private var selectedPlaylist: PlaylistManager.Playlist?
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 14),
+        GridItem(.flexible(), spacing: 14)
+    ]
 
     var body: some View {
         Group {
@@ -74,7 +78,7 @@ struct PlaylistsView: View {
         }
     }
 
-    // MARK: - Empty
+    // MARK: - Empty State (premium)
 
     private var emptyState: some View {
         VStack(spacing: 16) {
@@ -82,17 +86,17 @@ struct PlaylistsView: View {
 
             ZStack {
                 Circle()
-                    .fill(.tint.opacity(0.1))
+                    .fill(.tint.opacity(0.08))
                     .frame(width: 100, height: 100)
                 Image(systemName: "music.note.list")
-                    .font(.system(size: 40))
-                    .foregroundStyle(.tint.opacity(0.6))
+                    .font(.system(size: 38))
+                    .foregroundStyle(.tint.opacity(0.5))
             }
 
             Text("Aucune playlist")
                 .font(.title3.weight(.semibold))
 
-            Text("Crée ta première playlist pour organiser\ntes morceaux préférés.")
+            Text("Cree ta premiere playlist pour\norganiser tes morceaux preferes.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -100,15 +104,15 @@ struct PlaylistsView: View {
             Button {
                 withAnimation(.spring(duration: 0.3)) { showNewPlaylist = true }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: 6) {
                     Image(systemName: "plus")
-                        .font(.callout.weight(.bold))
-                    Text("Créer une playlist")
+                        .font(.caption.weight(.bold))
+                    Text("Creer une playlist")
                         .font(.callout.weight(.semibold))
                 }
                 .foregroundStyle(.white)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 13)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 11)
                 .background(.tint, in: Capsule())
             }
             .padding(.top, 4)
@@ -117,113 +121,37 @@ struct PlaylistsView: View {
         }
     }
 
-    // MARK: - List
+    // MARK: - Playlists List (grid layout)
 
     private var playlistsList: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                // Create new
-                Button {
-                    withAnimation(.spring(duration: 0.3)) { showNewPlaylist.toggle() }
-                } label: {
-                    HStack(spacing: 12) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 10)
-                                .fill(.tint.opacity(0.15))
-                                .frame(width: 52, height: 52)
-                            Image(systemName: "plus")
-                                .font(.title3.weight(.bold))
-                                .foregroundStyle(.tint)
-                        }
-                        Text("Nouvelle playlist")
-                            .font(.callout.weight(.medium))
-                        Spacer()
-                    }
-                    .padding(12)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 16)
-                .padding(.top, 4)
+            VStack(spacing: 14) {
+                // Create button (compact)
+                createButton
+                    .padding(.horizontal, 16)
+                    .padding(.top, 4)
 
                 // Create field
                 if showNewPlaylist {
-                    HStack(spacing: 10) {
-                        TextField("Nom de la playlist", text: $newPlaylistName)
-                            .textFieldStyle(.roundedBorder)
-                        Button("Créer") {
-                            let name = newPlaylistName.trimmingCharacters(in: .whitespaces)
-                            guard !name.isEmpty else { return }
-                            playlistManager.createPlaylist(name: name)
-                            newPlaylistName = ""
-                            showNewPlaylist = false
-                            HapticManager.notification(.success)
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(newPlaylistName.trimmingCharacters(in: .whitespaces).isEmpty)
-                    }
-                    .padding(.horizontal, 16)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
+                    createField
+                        .padding(.horizontal, 16)
+                        .transition(.opacity.combined(with: .move(edge: .top)))
                 }
 
-                // Stats
+                // Stats line
                 if !playlistManager.playlists.isEmpty {
-                    HStack(spacing: 0) {
-                        let totalTracks = playlistManager.playlists.reduce(0) { $0 + $1.trackCount }
-                        Text("\(playlistManager.playlists.count) playlist\(playlistManager.playlists.count > 1 ? "s" : "")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Text(" · ")
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                        Text("\(totalTracks) titre\(totalTracks > 1 ? "s" : "")")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 20)
+                    statsLine
+                        .padding(.horizontal, 20)
                 }
 
-                // Playlist cards
-                LazyVStack(spacing: 10) {
+                // Grid of playlists
+                LazyVGrid(columns: columns, spacing: 14) {
                     ForEach(playlistManager.playlists) { playlist in
-                        PremiumPlaylistCard(playlist: playlist) {
+                        PlaylistGridCard(playlist: playlist) {
                             selectedPlaylist = playlist
                         }
                         .contextMenu {
-                            Button {
-                                if let track = playlist.tracks.first {
-                                    player.forcePlay(track: track.toiTunesTrack())
-                                }
-                            } label: {
-                                Label("Lire", systemImage: "play.fill")
-                            }
-                            .disabled(playlist.tracks.isEmpty)
-
-                            Button {
-                                if let random = playlist.tracks.randomElement() {
-                                    player.forcePlay(track: random.toiTunesTrack())
-                                }
-                            } label: {
-                                Label("Lecture aléatoire", systemImage: "shuffle")
-                            }
-                            .disabled(playlist.tracks.isEmpty)
-
-                            Divider()
-
-                            Button {
-                                editingPlaylistId = playlist.id
-                                editName = playlist.name
-                            } label: {
-                                Label("Renommer", systemImage: "pencil")
-                            }
-
-                            Button(role: .destructive) {
-                                HapticManager.notification(.warning)
-                                withAnimation { playlistManager.deletePlaylist(id: playlist.id) }
-                            } label: {
-                                Label("Supprimer", systemImage: "trash")
-                            }
+                            playlistContextMenu(playlist: playlist)
                         }
                     }
                 }
@@ -232,23 +160,131 @@ struct PlaylistsView: View {
             .padding(.bottom, 100)
         }
     }
+
+    // MARK: - Create Button
+
+    private var createButton: some View {
+        Button {
+            withAnimation(.spring(duration: 0.3)) { showNewPlaylist.toggle() }
+        } label: {
+            HStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.tint.opacity(0.12))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "plus")
+                        .font(.callout.weight(.bold))
+                        .foregroundStyle(.tint)
+                }
+                Text("Nouvelle playlist")
+                    .font(.callout.weight(.medium))
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(10)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Create Field
+
+    private var createField: some View {
+        HStack(spacing: 8) {
+            TextField("Nom de la playlist", text: $newPlaylistName)
+                .textFieldStyle(.roundedBorder)
+                .font(.callout)
+            Button("Creer") {
+                let name = newPlaylistName.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                playlistManager.createPlaylist(name: name)
+                newPlaylistName = ""
+                showNewPlaylist = false
+                HapticManager.notification(.success)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .disabled(newPlaylistName.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+    }
+
+    // MARK: - Stats Line
+
+    private var statsLine: some View {
+        HStack(spacing: 0) {
+            let totalTracks = playlistManager.playlists.reduce(0) { $0 + $1.trackCount }
+            Text("\(playlistManager.playlists.count) playlist\(playlistManager.playlists.count > 1 ? "s" : "")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(" · ")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+            Text("\(totalTracks) titre\(totalTracks > 1 ? "s" : "")")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+        }
+    }
+
+    // MARK: - Context Menu
+
+    @ViewBuilder
+    private func playlistContextMenu(playlist: PlaylistManager.Playlist) -> some View {
+        Button {
+            if let track = playlist.tracks.first {
+                player.forcePlay(track: track.toiTunesTrack())
+            }
+        } label: {
+            Label("Lire", systemImage: "play.fill")
+        }
+        .disabled(playlist.tracks.isEmpty)
+
+        Button {
+            if let random = playlist.tracks.randomElement() {
+                player.forcePlay(track: random.toiTunesTrack())
+            }
+        } label: {
+            Label("Lecture aleatoire", systemImage: "shuffle")
+        }
+        .disabled(playlist.tracks.isEmpty)
+
+        Divider()
+
+        Button {
+            editingPlaylistId = playlist.id
+            editName = playlist.name
+        } label: {
+            Label("Renommer", systemImage: "pencil")
+        }
+
+        Button(role: .destructive) {
+            HapticManager.notification(.warning)
+            withAnimation { playlistManager.deletePlaylist(id: playlist.id) }
+        } label: {
+            Label("Supprimer", systemImage: "trash")
+        }
+    }
 }
 
-// MARK: - Premium Playlist Card
+// MARK: - Playlist Grid Card (premium, square)
 
-struct PremiumPlaylistCard: View {
+struct PlaylistGridCard: View {
     let playlist: PlaylistManager.Playlist
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 14) {
-                // Artwork mosaic or placeholder
+            VStack(alignment: .leading, spacing: 8) {
+                // Square artwork mosaic
                 artworkMosaic
-                    .frame(width: 60, height: 60)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(1, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                VStack(alignment: .leading, spacing: 4) {
+                // Info
+                VStack(alignment: .leading, spacing: 2) {
                     Text(playlist.name)
                         .font(.callout.weight(.semibold))
                         .lineLimit(1)
@@ -256,62 +292,63 @@ struct PremiumPlaylistCard: View {
 
                     HStack(spacing: 4) {
                         Text("\(playlist.trackCount) titre\(playlist.trackCount > 1 ? "s" : "")")
-                            .font(.caption)
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
 
-                        if let firstArtist = playlist.tracks.first?.artistName {
+                        if let dominantArtist = findDominantArtist() {
                             Text("·")
-                                .font(.caption)
+                                .font(.caption2)
                                 .foregroundStyle(.tertiary)
-                            Text(firstArtist)
-                                .font(.caption)
+                            Text(dominantArtist)
+                                .font(.caption2)
                                 .foregroundStyle(.tertiary)
                                 .lineLimit(1)
                         }
                     }
                 }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
+                .padding(.horizontal, 2)
             }
-            .padding(12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
     }
+
+    // MARK: - Artwork Mosaic
 
     @ViewBuilder
     private var artworkMosaic: some View {
         let artworks = playlist.tracks.prefix(4).compactMap { $0.artworkURL }
 
         if artworks.isEmpty {
+            // Empty placeholder
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(.quaternary)
-                Image(systemName: "music.note")
-                    .font(.title3)
-                    .foregroundStyle(.secondary)
+                VStack(spacing: 4) {
+                    Image(systemName: "music.note")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text("Vide")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
         } else if artworks.count < 4 {
-            // Single artwork
+            // Single / partial artwork
             AsyncImage(url: URL(string: artworks[0])) { phase in
                 if case .success(let img) = phase {
                     img.resizable().aspectRatio(contentMode: .fill)
                 } else {
-                    Color.gray.opacity(0.2)
+                    Color.gray.opacity(0.15)
                 }
             }
         } else {
-            // 2x2 grid
-            VStack(spacing: 1) {
-                HStack(spacing: 1) {
+            // 2x2 grid mosaic
+            VStack(spacing: 1.5) {
+                HStack(spacing: 1.5) {
                     mosaicTile(artworks[0])
                     mosaicTile(artworks[1])
                 }
-                HStack(spacing: 1) {
+                HStack(spacing: 1.5) {
                     mosaicTile(artworks[2])
                     mosaicTile(artworks[3])
                 }
@@ -324,11 +361,24 @@ struct PremiumPlaylistCard: View {
             if case .success(let img) = phase {
                 img.resizable().aspectRatio(contentMode: .fill)
             } else {
-                Color.gray.opacity(0.2)
+                Color.gray.opacity(0.15)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
+    }
+
+    // MARK: - Dominant Artist
+
+    private func findDominantArtist() -> String? {
+        guard !playlist.tracks.isEmpty else { return nil }
+        var counts: [String: Int] = [:]
+        for track in playlist.tracks {
+            counts[track.artistName, default: 0] += 1
+        }
+        guard let top = counts.max(by: { $0.value < $1.value }),
+              top.value >= 2 || playlist.tracks.count <= 3 else { return nil }
+        return top.key
     }
 }
 
@@ -353,18 +403,17 @@ struct PlaylistDetailView: View {
                         ZStack {
                             Circle()
                                 .fill(.quaternary)
-                                .frame(width: 80, height: 80)
+                                .frame(width: 70, height: 70)
                             Image(systemName: "music.note")
-                                .font(.title)
+                                .font(.title2)
                                 .foregroundStyle(.secondary)
                         }
                         Text("Playlist vide")
                             .font(.title3.weight(.semibold))
-                        Text("Ajoute des morceaux depuis la recherche\nou les recommandations.")
+                        Text("Ajoute des morceaux depuis la\nrecherche ou les recommandations.")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
                         Spacer()
                     }
                 } else {
@@ -376,17 +425,17 @@ struct PlaylistDetailView: View {
                             // Tracks
                             LazyVStack(spacing: 0) {
                                 ForEach(Array(currentPlaylist.tracks.enumerated()), id: \.element.id) { index, track in
-                                    HStack(spacing: 12) {
+                                    HStack(spacing: 10) {
                                         // Track number
                                         Text("\(index + 1)")
                                             .font(.caption.monospacedDigit())
                                             .foregroundStyle(.tertiary)
-                                            .frame(width: 20)
+                                            .frame(width: 18)
 
                                         AsyncArtwork(
                                             url: track.artworkURL.flatMap { URL(string: $0) },
-                                            size: 44,
-                                            radius: 8
+                                            size: 40,
+                                            radius: 7
                                         )
 
                                         VStack(alignment: .leading, spacing: 2) {
@@ -401,7 +450,7 @@ struct PlaylistDetailView: View {
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                     }
                                     .padding(.horizontal, 16)
-                                    .padding(.vertical, 10)
+                                    .padding(.vertical, 8)
                                     .contentShape(Rectangle())
                                     .onTapGesture {
                                         HapticManager.impact(.light)
@@ -411,7 +460,7 @@ struct PlaylistDetailView: View {
                                         Button {
                                             player.forcePlay(track: track.toiTunesTrack())
                                         } label: {
-                                            Label("Écouter", systemImage: "play.fill")
+                                            Label("Ecouter", systemImage: "play.fill")
                                         }
 
                                         Divider()
@@ -425,7 +474,7 @@ struct PlaylistDetailView: View {
                                     }
 
                                     if index < currentPlaylist.tracks.count - 1 {
-                                        Divider().padding(.leading, 92)
+                                        Divider().padding(.leading, 84)
                                     }
                                 }
                             }
@@ -445,12 +494,12 @@ struct PlaylistDetailView: View {
     }
 
     private var playlistHeader: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 12) {
             Text("\(currentPlaylist.trackCount) titre\(currentPlaylist.trackCount > 1 ? "s" : "")")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 16) {
+            HStack(spacing: 12) {
                 // Play all
                 Button {
                     HapticManager.impact(.medium)
@@ -458,15 +507,15 @@ struct PlaylistDetailView: View {
                         player.forcePlay(track: first.toiTunesTrack())
                     }
                 } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Image(systemName: "play.fill")
-                            .font(.callout.weight(.bold))
+                            .font(.caption.weight(.bold))
                         Text("Lecture")
                             .font(.callout.weight(.semibold))
                     }
                     .foregroundStyle(.white)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
+                    .padding(.vertical, 10)
                     .background(.tint, in: Capsule())
                 }
 
@@ -477,20 +526,20 @@ struct PlaylistDetailView: View {
                         player.forcePlay(track: random.toiTunesTrack())
                     }
                 } label: {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 6) {
                         Image(systemName: "shuffle")
-                            .font(.callout.weight(.bold))
-                        Text("Aléatoire")
+                            .font(.caption.weight(.bold))
+                        Text("Aleatoire")
                             .font(.callout.weight(.semibold))
                     }
                     .foregroundStyle(.tint)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(.tint.opacity(0.15), in: Capsule())
+                    .padding(.vertical, 10)
+                    .background(.tint.opacity(0.12), in: Capsule())
                 }
             }
             .padding(.horizontal, 16)
         }
-        .padding(.vertical, 16)
+        .padding(.vertical, 12)
     }
 }

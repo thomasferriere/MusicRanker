@@ -28,7 +28,7 @@ struct LikedSongsView: View {
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \SwipedSongEntity.swipedAt, ascending: false)],
         predicate: NSPredicate(format: "isLiked == YES"),
-        animation: .default
+        animation: .none
     )
     private var likedSongs: FetchedResults<SwipedSongEntity>
 
@@ -37,7 +37,7 @@ struct LikedSongsView: View {
     @State private var selectedGenreFilter: String?
     @State private var playlistTarget: iTunesTrack?
 
-    // MARK: - Computed (cached to avoid re-computation)
+    // MARK: - Computed
 
     private var allGenres: [String] {
         var counts: [String: Int] = [:]
@@ -102,25 +102,29 @@ struct LikedSongsView: View {
     private var songsList: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
-                statsHeader
+                // Compact header: count + shuffle inline
+                headerBar
                     .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
+                    .padding(.top, 4)
+                    .padding(.bottom, 6)
 
+                // Genre chips (only if multiple)
                 if allGenres.count > 1 {
                     genreFilterChips
-                        .padding(.bottom, 8)
+                        .padding(.bottom, 6)
                 }
 
+                // Sort bar
                 sortBar
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 12)
+                    .padding(.bottom, 8)
 
+                // Track list
                 LazyVStack(spacing: 0) {
                     ForEach(filteredAndSortedSongs, id: \.objectID) { song in
                         LikedSongRow(song: song)
                             .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
+                            .padding(.vertical, 8)
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 HapticManager.impact(.light)
@@ -171,7 +175,7 @@ struct LikedSongsView: View {
 
                         if song.objectID != filteredAndSortedSongs.last?.objectID {
                             Divider()
-                                .padding(.leading, 72)
+                                .padding(.leading, 68)
                         }
                     }
                 }
@@ -180,76 +184,73 @@ struct LikedSongsView: View {
         }
     }
 
-    // MARK: - Stats Header
+    // MARK: - Header Bar (compact: count + top genres + shuffle)
 
-    private var statsHeader: some View {
-        HStack(spacing: 16) {
-            VStack(spacing: 2) {
-                Text("\(likedSongs.count)")
-                    .font(.title3.bold().monospacedDigit())
-                    .foregroundStyle(.green)
-                Text("likes")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+    private var headerBar: some View {
+        HStack(spacing: 0) {
+            // Count
+            Text("\(likedSongs.count)")
+                .font(.title3.bold().monospacedDigit())
+                .foregroundStyle(.green)
+            Text(" like\(likedSongs.count > 1 ? "s" : "")")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
 
-            let genres = topGenres(3)
+            // Top genres as dots
+            let genres = topGenres(2)
             if !genres.isEmpty {
-                Divider().frame(height: 32)
-                HStack(spacing: 6) {
-                    ForEach(genres, id: \.self) { genre in
-                        Text(genre)
-                            .font(.caption2.weight(.medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(.tint.opacity(0.1), in: Capsule())
+                Text("  ·  ")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                ForEach(genres, id: \.self) { genre in
+                    Text(genre)
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    if genre != genres.last {
+                        Text(", ")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
                 }
             }
 
             Spacer()
+
+            // Shuffle button
+            Button {
+                HapticManager.impact(.medium)
+                shufflePlay()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "shuffle")
+                        .font(.caption2.weight(.bold))
+                    Text("Mix")
+                        .font(.caption.weight(.semibold))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.tint, in: Capsule())
+            }
+            .buttonStyle(.plain)
         }
-        .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
     // MARK: - Genre Filter
 
     private var genreFilterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                Button {
+            HStack(spacing: 6) {
+                FilterChip(label: "Tout", isSelected: selectedGenreFilter == nil) {
                     withAnimation(.spring(duration: 0.25)) { selectedGenreFilter = nil }
-                } label: {
-                    Text("Tout")
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 7)
-                        .background(
-                            selectedGenreFilter == nil ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary),
-                            in: Capsule()
-                        )
-                        .foregroundStyle(selectedGenreFilter == nil ? .white : .primary)
                 }
-                .buttonStyle(.plain)
 
                 ForEach(allGenres, id: \.self) { genre in
-                    Button {
+                    FilterChip(label: genre, isSelected: selectedGenreFilter == genre) {
                         withAnimation(.spring(duration: 0.25)) {
                             selectedGenreFilter = selectedGenreFilter == genre ? nil : genre
                         }
-                    } label: {
-                        Text(genre)
-                            .font(.caption.weight(.medium))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 7)
-                            .background(
-                                selectedGenreFilter == genre ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary),
-                                in: Capsule()
-                            )
-                            .foregroundStyle(selectedGenreFilter == genre ? .white : .primary)
                     }
-                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 16)
@@ -259,7 +260,7 @@ struct LikedSongsView: View {
     // MARK: - Sort Bar
 
     private var sortBar: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 0) {
             Menu {
                 ForEach(LikedSongsSortOption.allCases, id: \.self) { option in
                     Button {
@@ -269,7 +270,7 @@ struct LikedSongsView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 5) {
+                HStack(spacing: 4) {
                     Image(systemName: "arrow.up.arrow.down")
                         .font(.caption2.weight(.semibold))
                     Text(sortOption.rawValue)
@@ -279,23 +280,6 @@ struct LikedSongsView: View {
             }
 
             Spacer()
-
-            Button {
-                HapticManager.impact(.medium)
-                shufflePlay()
-            } label: {
-                HStack(spacing: 5) {
-                    Image(systemName: "shuffle")
-                        .font(.caption2.weight(.bold))
-                    Text("Shuffle")
-                        .font(.caption.weight(.semibold))
-                }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(.tint, in: Capsule())
-            }
-            .buttonStyle(.plain)
 
             Text("\(filteredAndSortedSongs.count) titre\(filteredAndSortedSongs.count > 1 ? "s" : "")")
                 .font(.caption2)
@@ -307,16 +291,20 @@ struct LikedSongsView: View {
 
     private var emptyState: some View {
         VStack(spacing: 14) {
-            Image(systemName: "heart.slash")
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
+            ZStack {
+                Circle()
+                    .fill(.green.opacity(0.08))
+                    .frame(width: 90, height: 90)
+                Image(systemName: "heart")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.green.opacity(0.4))
+            }
             Text("Aucun like")
                 .font(.title3.weight(.semibold))
-            Text("Swipe à droite dans Découvrir pour sauvegarder tes morceaux préférés.")
+            Text("Swipe a droite dans Decouvrir\npour sauvegarder tes morceaux.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -363,7 +351,30 @@ struct LikedSongsView: View {
     }
 }
 
-// MARK: - Liked Song Row
+// MARK: - Filter Chip (reusable)
+
+struct FilterChip: View {
+    let label: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(
+                    isSelected ? AnyShapeStyle(.tint) : AnyShapeStyle(.quaternary),
+                    in: Capsule()
+                )
+                .foregroundStyle(isSelected ? .white : .primary)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Liked Song Row (compact)
 
 struct LikedSongRow: View {
     let song: SwipedSongEntity
@@ -378,24 +389,24 @@ struct LikedSongRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             AsyncArtwork(
                 url: song.artworkURL.flatMap { URL(string: $0) },
-                size: 48,
-                radius: 10
+                size: 44,
+                radius: 8
             )
             .overlay {
                 if isPlaying {
-                    RoundedRectangle(cornerRadius: 10)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(.black.opacity(0.3))
                     Image(systemName: "waveform")
-                        .font(.caption.weight(.bold))
+                        .font(.caption2.weight(.bold))
                         .foregroundStyle(.white)
                         .symbolEffect(.variableColor.iterative, isActive: isPlaying)
                 }
             }
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(song.title ?? "Titre inconnu")
                     .font(.callout.weight(.medium))
                     .lineLimit(1)
@@ -404,6 +415,7 @@ struct LikedSongRow: View {
                     Text(song.artistName ?? "Artiste")
                     if let genre = song.genre, !genre.isEmpty {
                         Text("·")
+                            .foregroundStyle(.tertiary)
                         Text(genre)
                     }
                 }
@@ -415,7 +427,7 @@ struct LikedSongRow: View {
 
             if isPlaying {
                 Image(systemName: "speaker.wave.2.fill")
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.tint)
                     .symbolEffect(.variableColor.iterative, isActive: true)
             }
