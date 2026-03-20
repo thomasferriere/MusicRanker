@@ -6,6 +6,7 @@ struct MusicRankerApp: App {
     @StateObject private var player = AudioPlayerManager()
     @StateObject private var engine: RecommendationEngine
     @StateObject private var playlistManager: PlaylistManager
+    @StateObject private var trendingService = TrendingService()
 
     init() {
         let context = PersistenceController.shared.container.viewContext
@@ -20,6 +21,7 @@ struct MusicRankerApp: App {
                 .environmentObject(player)
                 .environmentObject(engine)
                 .environmentObject(playlistManager)
+                .environmentObject(trendingService)
                 .preferredColorScheme(.dark)
         }
     }

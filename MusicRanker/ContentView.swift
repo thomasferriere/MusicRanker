@@ -4,6 +4,7 @@ struct ContentView: View {
     @EnvironmentObject private var player: AudioPlayerManager
     @EnvironmentObject private var engine: RecommendationEngine
     @EnvironmentObject private var playlistManager: PlaylistManager
+    @EnvironmentObject private var trendingService: TrendingService
 
     @State private var selectedTab = 0
     @State private var showNowPlaying = false
@@ -60,6 +61,7 @@ struct ContentView: View {
                 .environmentObject(player)
                 .environmentObject(engine)
                 .environmentObject(playlistManager)
+                .environmentObject(trendingService)
         }
     }
 
@@ -144,4 +146,5 @@ struct MiniPlayerView: View {
         .environmentObject(AudioPlayerManager())
         .environmentObject(RecommendationEngine(context: PersistenceController.preview.container.viewContext))
         .environmentObject(PlaylistManager(context: PersistenceController.preview.container.viewContext))
+        .environmentObject(TrendingService())
 }

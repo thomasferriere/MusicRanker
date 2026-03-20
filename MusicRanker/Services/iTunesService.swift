@@ -91,6 +91,37 @@ final class iTunesService: MusicSearchService, @unchecked Sendable {
         return tracks
     }
 
+    // MARK: - Bulk Lookup by IDs
+
+    /// Lookup multiple tracks by their iTunes IDs in a single request
+    func lookupByIds(_ ids: [String], country: String = "fr") async -> [iTunesTrack] {
+        guard !ids.isEmpty else { return [] }
+
+        let idsString = ids.prefix(50).joined(separator: ",")
+        let cacheKey = "bulk:\(idsString):\(country)"
+
+        cacheLock.lock()
+        if let cached = cache[cacheKey], Date().timeIntervalSince(cached.date) < cacheDuration {
+            cacheLock.unlock()
+            return cached.tracks
+        }
+        cacheLock.unlock()
+
+        guard var components = URLComponents(string: "\(baseURL)/lookup") else { return [] }
+        components.queryItems = [
+            URLQueryItem(name: "id", value: idsString),
+            URLQueryItem(name: "country", value: country),
+        ]
+
+        let tracks = await fetch(url: components.url)
+
+        cacheLock.lock()
+        cache[cacheKey] = (tracks, Date())
+        cacheLock.unlock()
+
+        return tracks
+    }
+
     // MARK: - Private
 
     private func fetch(url: URL?) async -> [iTunesTrack] {

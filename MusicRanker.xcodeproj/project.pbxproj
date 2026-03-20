@@ -30,6 +30,7 @@
 		FF000005000000000000002 /* ExternalMusicProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000005000000000000001 /* ExternalMusicProvider.swift */; };
 		FF000006000000000000002 /* SearchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000006000000000000001 /* SearchViewModel.swift */; };
 		FF000007000000000000002 /* PlaylistManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000007000000000000001 /* PlaylistManager.swift */; };
+		FF000008000000000000002 /* TrendingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000008000000000000001 /* TrendingService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,6 +60,7 @@
 		FF000005000000000000001 /* ExternalMusicProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMusicProvider.swift; sourceTree = "<group>"; };
 		FF000006000000000000001 /* SearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewModel.swift; sourceTree = "<group>"; };
 		FF000007000000000000001 /* PlaylistManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistManager.swift; sourceTree = "<group>"; };
+		FF000008000000000000001 /* TrendingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrendingService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -156,6 +158,7 @@
 				EE000001000000000000002 /* iTunesService.swift */,
 				EE000001000000000000004 /* ColorExtractor.swift */,
 				FF000005000000000000001 /* ExternalMusicProvider.swift */,
+				FF000008000000000000001 /* TrendingService.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -251,6 +254,7 @@
 				FF000005000000000000002 /* ExternalMusicProvider.swift in Sources */,
 				FF000006000000000000002 /* SearchViewModel.swift in Sources */,
 				FF000007000000000000002 /* PlaylistManager.swift in Sources */,
+				FF000008000000000000002 /* TrendingService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -392,7 +396,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasferriere.MusicRanker;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -420,7 +424,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 3.0;
+				MARKETING_VERSION = 3.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasferriere.MusicRanker;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
