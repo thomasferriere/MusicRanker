@@ -3,19 +3,30 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var player: AudioPlayerManager
     @EnvironmentObject private var engine: RecommendationEngine
+    @EnvironmentObject private var playlistManager: PlaylistManager
 
     @State private var selectedTab = 0
     @State private var showNowPlaying = false
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            // Discover — NO mini player here (user request)
+            // Discover — NO mini player (immersive)
             Tab("Découvrir", systemImage: "sparkles", value: 0) {
                 DiscoverView()
             }
 
-            // Pour toi — with mini player
-            Tab("Pour toi", systemImage: "wand.and.stars", value: 1) {
+            // Search
+            Tab("Recherche", systemImage: "magnifyingglass", value: 1) {
+                NavigationStack {
+                    SearchView()
+                        .navigationTitle("Recherche")
+                        .navigationBarTitleDisplayMode(.large)
+                }
+                .safeAreaInset(edge: .bottom) { miniPlayerBar }
+            }
+
+            // Pour toi
+            Tab("Pour toi", systemImage: "wand.and.stars", value: 2) {
                 NavigationStack {
                     ForYouView()
                         .navigationTitle("Pour toi")
@@ -24,18 +35,18 @@ struct ContentView: View {
                 .safeAreaInset(edge: .bottom) { miniPlayerBar }
             }
 
-            // Likes — with mini player
-            Tab("Likes", systemImage: "heart.fill", value: 2) {
+            // Bibliothèque (Likes + Playlists)
+            Tab("Bibliothèque", systemImage: "books.vertical", value: 3) {
                 NavigationStack {
-                    LikedSongsView()
-                        .navigationTitle("Mes likes")
+                    LibraryView()
+                        .navigationTitle("Bibliothèque")
                         .navigationBarTitleDisplayMode(.large)
                 }
                 .safeAreaInset(edge: .bottom) { miniPlayerBar }
             }
 
-            // Profil — with mini player
-            Tab("Profil", systemImage: "person.crop.circle", value: 3) {
+            // Profil
+            Tab("Profil", systemImage: "person.crop.circle", value: 4) {
                 NavigationStack {
                     TasteProfileView()
                         .navigationTitle("Mon profil")
@@ -48,10 +59,11 @@ struct ContentView: View {
             NowPlayingView()
                 .environmentObject(player)
                 .environmentObject(engine)
+                .environmentObject(playlistManager)
         }
     }
 
-    // MARK: - Mini Player (only outside Discover)
+    // MARK: - Mini Player
 
     @ViewBuilder
     private var miniPlayerBar: some View {
@@ -131,4 +143,5 @@ struct MiniPlayerView: View {
         .environment(\.managedObjectContext, PersistenceController.preview.container.viewContext)
         .environmentObject(AudioPlayerManager())
         .environmentObject(RecommendationEngine(context: PersistenceController.preview.container.viewContext))
+        .environmentObject(PlaylistManager(context: PersistenceController.preview.container.viewContext))
 }

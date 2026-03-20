@@ -6,6 +6,7 @@ struct DiscoverView: View {
 
     @State private var gradientColors: [Color] = ColorExtractor.fallbackColors
     @State private var detailTrack: iTunesTrack?
+    @State private var showRichSections = false
 
     var body: some View {
         ZStack {
@@ -33,6 +34,11 @@ struct DiscoverView: View {
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showRichSections) {
+            DiscoverSectionsSheet()
+                .environmentObject(engine)
+                .environmentObject(player)
+        }
     }
 
     // MARK: - Dynamic Background
@@ -53,9 +59,9 @@ struct DiscoverView: View {
             let safeWidth = geo.size.width
             let safeHeight = geo.size.height
 
-            // Card dimensions — leave room for buttons + tab bar
+            // Card dimensions
             let cardWidth = safeWidth - 48
-            let buttonsHeight: CGFloat = 80  // buttons area
+            let buttonsHeight: CGFloat = 80
             let topPadding: CGFloat = 8
             let spacing: CGFloat = 20
             let cardHeight = safeHeight - buttonsHeight - topPadding - spacing
@@ -90,24 +96,21 @@ struct DiscoverView: View {
     // MARK: - Action Buttons
 
     private var actionButtons: some View {
-        HStack(spacing: 60) {
+        HStack(spacing: 40) {
             // Dislike
-            actionButton(
-                icon: "xmark",
-                color: .red,
-                size: 72
-            ) {
+            actionButton(icon: "xmark", color: .red, size: 64) {
                 if let track = engine.cards.first {
                     handleSwipe(track: track, liked: false)
                 }
             }
 
+            // Discover sections
+            actionButton(icon: "square.grid.2x2", color: .cyan, size: 48) {
+                showRichSections = true
+            }
+
             // Like
-            actionButton(
-                icon: "heart.fill",
-                color: .green,
-                size: 72
-            ) {
+            actionButton(icon: "heart.fill", color: .green, size: 64) {
                 if let track = engine.cards.first {
                     handleSwipe(track: track, liked: true)
                 }
@@ -209,6 +212,224 @@ struct ScaleButtonStyle: ButtonStyle {
     }
 }
 
+// MARK: - Discover Sections Sheet (Rich Content)
+
+struct DiscoverSectionsSheet: View {
+    @EnvironmentObject private var engine: RecommendationEngine
+    @EnvironmentObject private var player: AudioPlayerManager
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var sections: [DiscoverSection] = []
+    @State private var isLoading = true
+
+    struct DiscoverSection: Identifiable {
+        let id = UUID()
+        let title: String
+        let subtitle: String?
+        let icon: String
+        let tracks: [iTunesTrack]
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    VStack(spacing: 14) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Préparation des découvertes...")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView(showsIndicators: false) {
+                        LazyVStack(alignment: .leading, spacing: 28) {
+                            ForEach(sections) { section in
+                                discoverSectionView(section)
+                            }
+                        }
+                        .padding(.top, 12)
+                        .padding(.bottom, 60)
+                    }
+                }
+            }
+            .navigationTitle("Explorer")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Fermer") { dismiss() }
+                }
+            }
+        }
+        .task { await loadSections() }
+    }
+
+    private func discoverSectionView(_ section: DiscoverSection) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Header
+            HStack(spacing: 10) {
+                Image(systemName: section.icon)
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(.tint)
+                    .frame(width: 28)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(section.title)
+                        .font(.headline)
+                    if let subtitle = section.subtitle {
+                        Text(subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+
+            // Horizontal cards
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: 14) {
+                    ForEach(section.tracks) { track in
+                        ForYouTrackCard(track: track) {
+                            HapticManager.impact(.light)
+                            if player.isCurrent(id: track.id) {
+                                player.togglePause()
+                            } else {
+                                player.forcePlay(track: track)
+                            }
+                        }
+                        .contextMenu {
+                            Button {
+                                HapticManager.notification(.success)
+                                engine.saveFeedback(track: track, liked: true)
+                            } label: {
+                                Label("J'aime", systemImage: "heart")
+                            }
+
+                            Button {
+                                player.forcePlay(track: track)
+                            } label: {
+                                Label("Écouter", systemImage: "play.fill")
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+    }
+
+    private func loadSections() async {
+        let profile = engine.buildTasteProfile()
+        var result: [DiscoverSection] = []
+        let service = iTunesService.shared
+        let year = Calendar.current.component(.year, from: Date())
+
+        // 1. Nouveautés pour toi
+        if let topGenre = profile.topGenres.first?.name {
+            let tracks = await service.search(term: "\(topGenre) \(year) new", limit: 20)
+            let filtered = tracks.filter { $0.previewURL != nil }.prefix(8)
+            if filtered.count >= 3 {
+                result.append(DiscoverSection(
+                    title: "Nouveautés pour toi",
+                    subtitle: "Basé sur tes goûts",
+                    icon: "sparkles",
+                    tracks: Array(filtered)
+                ))
+            }
+        }
+
+        // 2. Artistes similaires
+        if let topArtist = profile.topArtists.first {
+            let tracks = await service.search(term: "\(topArtist.name) similar", limit: 20)
+            let filtered = tracks.filter { $0.previewURL != nil && $0.artistName.lowercased() != topArtist.name.lowercased() }.prefix(8)
+            if filtered.count >= 3 {
+                result.append(DiscoverSection(
+                    title: "Artistes similaires",
+                    subtitle: "Si tu aimes \(topArtist.name)",
+                    icon: "person.2.fill",
+                    tracks: Array(filtered)
+                ))
+            }
+        }
+
+        // 3. Par ambiance
+        let moodLabel: String
+        let moodTerm: String
+        switch profile.averageEnergy {
+        case 0..<0.35: moodLabel = "Chill & Relax"; moodTerm = "chill relax calm lo-fi"
+        case 0.35..<0.55: moodLabel = "Easy Vibes"; moodTerm = "feel good vibes smooth"
+        case 0.55..<0.75: moodLabel = "Bonne humeur"; moodTerm = "happy upbeat fun summer"
+        default: moodLabel = "Énergie pure"; moodTerm = "workout hype energy bass"
+        }
+        let moodTracks = await service.search(term: moodTerm, limit: 15)
+        let moodFiltered = moodTracks.filter { $0.previewURL != nil }.shuffled().prefix(8)
+        if moodFiltered.count >= 3 {
+            result.append(DiscoverSection(
+                title: "Ambiance",
+                subtitle: moodLabel,
+                icon: "waveform",
+                tracks: Array(moodFiltered)
+            ))
+        }
+
+        // 4. Pépites récentes
+        let pepiteTerms = ["indie \(year)", "underground \(year)", "hidden gems \(year)"]
+        var pepiteTracks: [iTunesTrack] = []
+        for term in pepiteTerms.shuffled().prefix(2) {
+            let t = await service.search(term: term, limit: 10)
+            pepiteTracks.append(contentsOf: t)
+        }
+        let pepiteFiltered = pepiteTracks.filter { $0.previewURL != nil }.shuffled().prefix(8)
+        if pepiteFiltered.count >= 3 {
+            result.append(DiscoverSection(
+                title: "Pépites récentes",
+                subtitle: "Hors des radars",
+                icon: "star.fill",
+                tracks: Array(pepiteFiltered)
+            ))
+        }
+
+        // 5. Mix varié
+        let mixGenres = ["pop", "rap", "r&b", "rock", "electronic", "jazz", "reggaeton", "afrobeats"]
+        var mixTracks: [iTunesTrack] = []
+        for genre in mixGenres.shuffled().prefix(3) {
+            let t = await service.search(term: "\(genre) \(year)", limit: 8)
+            mixTracks.append(contentsOf: t)
+        }
+        let mixFiltered = mixTracks.filter { $0.previewURL != nil }.shuffled().prefix(10)
+        if mixFiltered.count >= 3 {
+            result.append(DiscoverSection(
+                title: "Mix varié",
+                subtitle: "Un peu de tout",
+                icon: "shuffle",
+                tracks: Array(mixFiltered)
+            ))
+        }
+
+        // 6. Redécouvrir (old liked artists with new tracks)
+        if profile.topArtists.count >= 2 {
+            let oldArtist = profile.topArtists[min(1, profile.topArtists.count - 1)]
+            if let artistId = oldArtist.ids.first {
+                let tracks = await service.lookupArtist(id: artistId, limit: 15)
+                let filtered = tracks.filter { $0.previewURL != nil }.prefix(8)
+                if filtered.count >= 3 {
+                    result.append(DiscoverSection(
+                        title: "Redécouvrir",
+                        subtitle: oldArtist.name,
+                        icon: "arrow.counterclockwise",
+                        tracks: Array(filtered)
+                    ))
+                }
+            }
+        }
+
+        sections = result
+        isLoading = false
+    }
+}
+
 // MARK: - Swipe Card
 
 struct SwipeCard: View {
@@ -229,18 +450,15 @@ struct SwipeCard: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Artwork — takes most of the card
             artworkView
                 .padding(.top, 20)
                 .padding(.horizontal, 20)
 
             Spacer(minLength: 12)
 
-            // Track info
             trackInfo
                 .padding(.horizontal, 20)
 
-            // Progress bar
             if isCurrentTrack {
                 progressBar
                     .padding(.horizontal, 20)
@@ -261,7 +479,6 @@ struct SwipeCard: View {
         }
         .offset(x: offset.width, y: offset.height * 0.25)
         .rotationEffect(.degrees(Double(offset.width) / 25))
-        // Swipe overlay indicators
         .overlay(alignment: .topLeading) {
             swipeLabel("NOPE", color: .red)
                 .opacity(max(0, -swipeProgress - 0.2))
@@ -275,11 +492,8 @@ struct SwipeCard: View {
         .gesture(swipeGesture)
     }
 
-    // MARK: - Artwork
-
     @ViewBuilder
     private var artworkView: some View {
-        // Artwork fills width minus padding, aspect ratio 1:1
         let artworkSize = width - 40
 
         ZStack {
@@ -288,7 +502,6 @@ struct SwipeCard: View {
                 .scaleEffect(isPressed ? 0.96 : 1)
                 .animation(.spring(duration: 0.2), value: isPressed)
 
-            // Play/Pause overlay on tap
             if isCurrentTrack && !isPlayingThis {
                 Circle()
                     .fill(.black.opacity(0.35))
@@ -309,8 +522,6 @@ struct SwipeCard: View {
             isPressed = pressing
         }
     }
-
-    // MARK: - Track Info
 
     private var trackInfo: some View {
         VStack(spacing: 5) {
@@ -344,8 +555,6 @@ struct SwipeCard: View {
         }
     }
 
-    // MARK: - Progress Bar
-
     private var progressBar: some View {
         GeometryReader { geo in
             ZStack(alignment: .leading) {
@@ -367,8 +576,6 @@ struct SwipeCard: View {
         .frame(height: 4)
     }
 
-    // MARK: - Swipe Label Overlay
-
     private func swipeLabel(_ text: String, color: Color) -> some View {
         Text(text)
             .font(.title.bold())
@@ -382,8 +589,6 @@ struct SwipeCard: View {
             .rotationEffect(.degrees(text == "NOPE" ? -15 : 15))
     }
 
-    // MARK: - Swipe Border
-
     private var swipeBorderGradient: some ShapeStyle {
         if swipeProgress > 0.3 {
             return AnyShapeStyle(.green.opacity(Double(swipeProgress) * 0.6))
@@ -393,8 +598,6 @@ struct SwipeCard: View {
         }
         return AnyShapeStyle(.white.opacity(0.08))
     }
-
-    // MARK: - Gesture
 
     private var swipeGesture: some Gesture {
         DragGesture()

@@ -7,11 +7,33 @@ struct TasteProfileView: View {
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \SwipedSongEntity.swipedAt, ascending: false)],
-        animation: .default
+        animation: .none // IMPORTANT: .none to prevent flickering
     )
     private var allSwiped: FetchedResults<SwipedSongEntity>
 
     @State private var showResetAlert = false
+
+    // MARK: - Stable Computed Data (avoid recomputation during animation)
+    // Using stable struct IDs to prevent SwiftUI flickering
+
+    private struct StableGenre: Identifiable {
+        let id: String // genre name as stable ID
+        let name: String
+        let count: Int
+    }
+
+    private struct StableArtist: Identifiable {
+        let id: String // artist name as stable ID
+        let name: String
+        let count: Int
+        let rank: Int
+    }
+
+    private struct StableDay: Identifiable {
+        let id: Int // weekday number
+        let day: String
+        let count: Int
+    }
 
     // MARK: - Computed
 
@@ -24,27 +46,31 @@ struct TasteProfileView: View {
         return Int(Double(likedCount) / Double(totalCount) * 100)
     }
 
-    private var topGenres: [(name: String, count: Int)] {
+    private var stableGenres: [StableGenre] {
         var counts: [String: Int] = [:]
         for song in allSwiped where song.isLiked {
             if let genre = song.genre, !genre.isEmpty {
                 counts[genre, default: 0] += 1
             }
         }
-        return counts.sorted { $0.value > $1.value }.prefix(8).map { ($0.key, $0.value) }
+        return counts.sorted { $0.value > $1.value }.prefix(8).map {
+            StableGenre(id: $0.key, name: $0.key, count: $0.value)
+        }
     }
 
-    private var topArtists: [(name: String, count: Int)] {
+    private var stableArtists: [StableArtist] {
         var counts: [String: Int] = [:]
         for song in allSwiped where song.isLiked {
             if let artist = song.artistName {
                 counts[artist, default: 0] += 1
             }
         }
-        return counts.sorted { $0.value > $1.value }.prefix(10).map { ($0.key, $0.value) }
+        return counts.sorted { $0.value > $1.value }.prefix(10).enumerated().map { index, item in
+            StableArtist(id: item.key, name: item.key, count: item.value, rank: index)
+        }
     }
 
-    private var recentActivity: [(day: String, count: Int)] {
+    private var stableActivity: [StableDay] {
         let liked = allSwiped.filter(\.isLiked)
         let calendar = Calendar.current
         let formatter = DateFormatter()
@@ -58,13 +84,13 @@ struct TasteProfileView: View {
             dayCounts[weekday, default: 0] += 1
         }
 
-        let orderedDays = [2, 3, 4, 5, 6, 7, 1] // Lun -> Dim
+        let orderedDays = [2, 3, 4, 5, 6, 7, 1]
         return orderedDays.compactMap { day in
             var comp = DateComponents()
             comp.weekday = day
             guard let date = calendar.nextDate(after: Date(), matching: comp, matchingPolicy: .nextTime) else { return nil }
             let name = formatter.string(from: date).capitalized
-            return (day: name, count: dayCounts[day] ?? 0)
+            return StableDay(id: day, day: name, count: dayCounts[day] ?? 0)
         }
     }
 
@@ -87,30 +113,23 @@ struct TasteProfileView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 20) {
                 if likedCount > 0 {
-                    // Musical identity card
                     identityCard
                         .padding(.top, 8)
 
-                    // Stats row
                     statsRow
 
-                    // Energy profile
                     energySection
 
-                    // Top genres
-                    if !topGenres.isEmpty {
+                    if !stableGenres.isEmpty {
                         genresSection
                     }
 
-                    // Top artists
-                    if !topArtists.isEmpty {
+                    if !stableArtists.isEmpty {
                         artistsSection
                     }
 
-                    // Activity
                     activitySection
 
-                    // Streak
                     if listenStreak > 0 {
                         streakBadge
                     }
@@ -118,7 +137,6 @@ struct TasteProfileView: View {
                     emptyProfile
                 }
 
-                // Reset
                 if totalCount > 0 {
                     resetButton
                         .padding(.top, 8)
@@ -143,7 +161,7 @@ struct TasteProfileView: View {
     private var identityCard: some View {
         let profile = engine.buildTasteProfile()
         let energy = profile.averageEnergy
-        let mainGenre = topGenres.first?.name ?? "Musique"
+        let mainGenre = stableGenres.first?.name ?? "Musique"
         let persona: (title: String, subtitle: String, gradient: [Color])
 
         if energy >= 0.75 {
@@ -151,13 +169,12 @@ struct TasteProfileView: View {
         } else if energy >= 0.55 {
             persona = ("Esprit Dynamique", "Tu vibres avec le rythme", [.orange, .yellow])
         } else if energy >= 0.35 {
-            persona = ("Ame Équilibrée", "Tu navigue entre calme et énergie", [.teal, .cyan])
+            persona = ("Âme Équilibrée", "Tu navigues entre calme et énergie", [.teal, .cyan])
         } else {
             persona = ("Voyageur Zen", "La sérénité guide tes écoutes", [.indigo, .purple])
         }
 
         return VStack(spacing: 14) {
-            // Gradient header
             ZStack {
                 LinearGradient(colors: persona.gradient + [.clear], startPoint: .topLeading, endPoint: .bottomTrailing)
                     .frame(height: 100)
@@ -186,7 +203,7 @@ struct TasteProfileView: View {
                 Divider().frame(height: 24)
 
                 VStack(spacing: 2) {
-                    Text("\(topArtists.first?.name ?? "—")")
+                    Text(stableArtists.first?.name ?? "—")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.pink)
                         .lineLimit(1)
@@ -250,21 +267,13 @@ struct TasteProfileView: View {
 
         switch energy {
         case 0..<0.35:
-            label = "Chill & Relax"
-            icon = "moon.stars.fill"
-            color = .indigo
+            label = "Chill & Relax"; icon = "moon.stars.fill"; color = .indigo
         case 0.35..<0.55:
-            label = "Équilibré"
-            icon = "equal.circle.fill"
-            color = .teal
+            label = "Équilibré"; icon = "equal.circle.fill"; color = .teal
         case 0.55..<0.75:
-            label = "Dynamique"
-            icon = "bolt.fill"
-            color = .orange
+            label = "Dynamique"; icon = "bolt.fill"; color = .orange
         default:
-            label = "Haute énergie"
-            icon = "flame.fill"
-            color = .red
+            label = "Haute énergie"; icon = "flame.fill"; color = .red
         }
 
         return sectionCard(title: "Ton énergie musicale", icon: "waveform.path.ecg") {
@@ -277,7 +286,6 @@ struct TasteProfileView: View {
                     Text(label)
                         .font(.headline)
 
-                    // Energy bar
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             Capsule()
@@ -303,50 +311,48 @@ struct TasteProfileView: View {
         }
     }
 
-    // MARK: - Genres
+    // MARK: - Genres (STABLE IDs — no flickering)
 
     private var genresSection: some View {
-        sectionCard(title: "Tes genres", icon: "guitars.fill") {
+        let maxCount = stableGenres.first?.count ?? 1
+
+        return sectionCard(title: "Tes genres", icon: "guitars.fill") {
             VStack(spacing: 10) {
-                ForEach(Array(topGenres.enumerated()), id: \.element.name) { _, genre in
+                ForEach(stableGenres) { genre in
                     HStack(spacing: 10) {
                         Text(genre.name)
                             .font(.callout.weight(.medium))
                             .lineLimit(1)
                             .frame(width: 110, alignment: .leading)
 
-                        GenreBarView(
-                            count: genre.count,
-                            maxCount: topGenres.first?.count ?? 1
-                        )
+                        GenreBarView(count: genre.count, maxCount: maxCount)
                     }
                 }
             }
         }
     }
 
-    // MARK: - Artists
+    // MARK: - Artists (STABLE IDs — no flickering)
 
     private var artistsSection: some View {
         sectionCard(title: "Tes artistes", icon: "music.mic") {
             VStack(spacing: 0) {
-                ForEach(Array(topArtists.enumerated()), id: \.element.name) { index, artist in
+                ForEach(stableArtists) { artist in
                     HStack(spacing: 12) {
-                        // Rank badge
                         ZStack {
-                            if index < 3 {
+                            if artist.rank < 3 {
                                 Circle()
-                                    .fill(medalColor(index).opacity(0.15))
+                                    .fill(medalColor(artist.rank).opacity(0.15))
                                     .frame(width: 28, height: 28)
                             }
-                            Text("\(index + 1)")
+                            Text("\(artist.rank + 1)")
                                 .font(.caption.bold().monospacedDigit())
-                                .foregroundStyle(index < 3 ? medalColor(index) : .secondary)
+                                .foregroundStyle(artist.rank < 3 ? medalColor(artist.rank) : .secondary)
                         }
                         .frame(width: 28)
 
                         Text(artist.name)
-                            .font(.callout.weight(index < 3 ? .semibold : .regular))
+                            .font(.callout.weight(artist.rank < 3 ? .semibold : .regular))
                             .lineLimit(1)
 
                         Spacer()
@@ -357,7 +363,7 @@ struct TasteProfileView: View {
                     }
                     .padding(.vertical, 9)
 
-                    if index < topArtists.count - 1 {
+                    if artist.rank < stableArtists.count - 1 {
                         Divider().opacity(0.4)
                     }
                 }
@@ -365,14 +371,14 @@ struct TasteProfileView: View {
         }
     }
 
-    // MARK: - Activity
+    // MARK: - Activity (STABLE IDs)
 
     private var activitySection: some View {
-        let maxDay = recentActivity.map(\.count).max() ?? 1
+        let maxDay = stableActivity.map(\.count).max() ?? 1
 
         return sectionCard(title: "Ton activité", icon: "chart.bar.fill") {
             HStack(alignment: .bottom, spacing: 8) {
-                ForEach(recentActivity, id: \.day) { item in
+                ForEach(stableActivity) { item in
                     VStack(spacing: 6) {
                         RoundedRectangle(cornerRadius: 4)
                             .fill(Color.accentColor.gradient)

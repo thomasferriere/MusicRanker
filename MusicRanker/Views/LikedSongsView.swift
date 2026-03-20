@@ -23,6 +23,7 @@ struct LikedSongsView: View {
     @Environment(\.managedObjectContext) private var viewContext
     @EnvironmentObject private var player: AudioPlayerManager
     @EnvironmentObject private var engine: RecommendationEngine
+    @EnvironmentObject private var playlistManager: PlaylistManager
 
     @FetchRequest(
         sortDescriptors: [NSSortDescriptor(keyPath: \SwipedSongEntity.swipedAt, ascending: false)],
@@ -34,8 +35,9 @@ struct LikedSongsView: View {
     @State private var searchText = ""
     @State private var sortOption: LikedSongsSortOption = .recent
     @State private var selectedGenreFilter: String?
+    @State private var playlistTarget: iTunesTrack?
 
-    // MARK: - Computed
+    // MARK: - Computed (cached to avoid re-computation)
 
     private var allGenres: [String] {
         var counts: [String: Int] = [:]
@@ -50,12 +52,10 @@ struct LikedSongsView: View {
     private var filteredAndSortedSongs: [SwipedSongEntity] {
         var songs = Array(likedSongs)
 
-        // Genre filter
         if let genre = selectedGenreFilter {
             songs = songs.filter { $0.genre == genre }
         }
 
-        // Search filter
         if !searchText.isEmpty {
             songs = songs.filter {
                 ($0.title ?? "").localizedCaseInsensitiveContains(searchText) ||
@@ -64,7 +64,6 @@ struct LikedSongsView: View {
             }
         }
 
-        // Sort
         switch sortOption {
         case .recent:
             songs.sort { ($0.swipedAt ?? .distantPast) > ($1.swipedAt ?? .distantPast) }
@@ -90,6 +89,12 @@ struct LikedSongsView: View {
             }
         }
         .searchable(text: $searchText, prompt: "Rechercher dans tes likes...")
+        .sheet(item: $playlistTarget) { track in
+            AddToPlaylistSheet(track: track)
+                .environmentObject(playlistManager)
+                .presentationDetents([.medium])
+                .presentationDragIndicator(.visible)
+        }
     }
 
     // MARK: - Songs List
@@ -97,24 +102,20 @@ struct LikedSongsView: View {
     private var songsList: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 0) {
-                // Stats header
                 statsHeader
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                     .padding(.bottom, 4)
 
-                // Genre filter chips
                 if allGenres.count > 1 {
                     genreFilterChips
                         .padding(.bottom, 8)
                 }
 
-                // Sort bar + shuffle
                 sortBar
                     .padding(.horizontal, 16)
                     .padding(.bottom, 12)
 
-                // Songs
                 LazyVStack(spacing: 0) {
                     ForEach(filteredAndSortedSongs, id: \.objectID) { song in
                         LikedSongRow(song: song)
@@ -133,6 +134,29 @@ struct LikedSongsView: View {
                                         Label("Écouter", systemImage: "play.fill")
                                     }
                                 }
+
+                                Button {
+                                    playlistTarget = songToTrack(song)
+                                } label: {
+                                    Label("Ajouter à une playlist", systemImage: "text.badge.plus")
+                                }
+
+                                // External platforms
+                                Menu("Ouvrir dans...") {
+                                    ForEach(MusicPlatform.allCases) { platform in
+                                        Button {
+                                            ExternalMusicOpener.open(
+                                                platform: platform,
+                                                title: song.title ?? "",
+                                                artist: song.artistName ?? ""
+                                            )
+                                        } label: {
+                                            Label(platform.rawValue, systemImage: platform.icon)
+                                        }
+                                    }
+                                }
+
+                                Divider()
 
                                 Button(role: .destructive) {
                                     HapticManager.impact(.rigid)
@@ -194,7 +218,6 @@ struct LikedSongsView: View {
     private var genreFilterChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                // All chip
                 Button {
                     withAnimation(.spring(duration: 0.25)) { selectedGenreFilter = nil }
                 } label: {
@@ -237,7 +260,6 @@ struct LikedSongsView: View {
 
     private var sortBar: some View {
         HStack(spacing: 12) {
-            // Sort picker
             Menu {
                 ForEach(LikedSongsSortOption.allCases, id: \.self) { option in
                     Button {
@@ -258,7 +280,6 @@ struct LikedSongsView: View {
 
             Spacer()
 
-            // Shuffle play
             Button {
                 HapticManager.impact(.medium)
                 shufflePlay()
@@ -276,7 +297,6 @@ struct LikedSongsView: View {
             }
             .buttonStyle(.plain)
 
-            // Count
             Text("\(filteredAndSortedSongs.count) titre\(filteredAndSortedSongs.count > 1 ? "s" : "")")
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
@@ -303,15 +323,14 @@ struct LikedSongsView: View {
 
     // MARK: - Helpers
 
-    private func playSong(_ song: SwipedSongEntity) {
-        guard let urlStr = song.previewURL, let url = URL(string: urlStr) else { return }
-        let track = iTunesTrack(
+    private func songToTrack(_ song: SwipedSongEntity) -> iTunesTrack {
+        iTunesTrack(
             id: Int(song.id ?? "0") ?? 0,
             title: song.title ?? "",
             artistName: song.artistName ?? "",
             albumName: song.albumName,
             artworkURL: song.artworkURL.flatMap { URL(string: $0) },
-            previewURL: url,
+            previewURL: song.previewURL.flatMap { URL(string: $0) },
             genre: song.genre,
             releaseDate: song.releaseDate,
             durationMs: Int(song.durationMs),
@@ -319,7 +338,11 @@ struct LikedSongsView: View {
             albumId: nil,
             trackNumber: nil
         )
-        player.forcePlay(track: track)
+    }
+
+    private func playSong(_ song: SwipedSongEntity) {
+        guard song.previewURL != nil else { return }
+        player.forcePlay(track: songToTrack(song))
     }
 
     private func shufflePlay() {
@@ -346,9 +369,12 @@ struct LikedSongRow: View {
     let song: SwipedSongEntity
     @EnvironmentObject private var player: AudioPlayerManager
 
+    private var trackId: Int {
+        Int(song.id ?? "0") ?? 0
+    }
+
     private var isPlaying: Bool {
-        let id = Int(song.id ?? "0") ?? 0
-        return player.isCurrentlyPlaying(id: id)
+        player.isCurrentlyPlaying(id: trackId)
     }
 
     var body: some View {

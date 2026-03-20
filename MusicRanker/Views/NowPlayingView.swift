@@ -1,14 +1,20 @@
 import SwiftUI
 
 /// Full-screen Now Playing view — Apple Music inspired
+/// Swipe down to dismiss, long press for platform links, video button
 struct NowPlayingView: View {
     @EnvironmentObject private var player: AudioPlayerManager
     @EnvironmentObject private var engine: RecommendationEngine
+    @EnvironmentObject private var playlistManager: PlaylistManager
     @Environment(\.dismiss) private var dismiss
 
     @State private var gradientColors: [Color] = ColorExtractor.fallbackColors
     @State private var liked = false
     @State private var disliked = false
+    @State private var showPlatforms = false
+    @State private var showVideo = false
+    @State private var showPlaylistPicker = false
+    @State private var dragOffset: CGFloat = 0
 
     var body: some View {
         ZStack {
@@ -25,12 +31,12 @@ struct NowPlayingView: View {
                 header
                     .padding(.top, 12)
 
-                Spacer(minLength: 20)
+                Spacer(minLength: 16)
 
                 // Artwork
                 artwork
 
-                Spacer(minLength: 24)
+                Spacer(minLength: 20)
 
                 // Track info
                 trackInfo
@@ -45,18 +51,78 @@ struct NowPlayingView: View {
 
                 // Like / Dislike
                 feedbackButtons
-                    .padding(.top, 28)
+                    .padding(.top, 20)
 
-                Spacer(minLength: 20)
+                // Bottom actions (video, playlist, platforms)
+                bottomActions
+                    .padding(.top, 16)
+
+                Spacer(minLength: 16)
             }
             .padding(.horizontal, 32)
         }
+        .offset(y: dragOffset)
+        .gesture(dismissGesture)
         .task { await loadColors() }
         .onChange(of: player.currentTrack?.id) { _, _ in
             Task { await loadColors() }
             updateLikeState()
         }
         .onAppear { updateLikeState() }
+        .confirmationDialog("Ouvrir dans...", isPresented: $showPlatforms) {
+            ForEach(MusicPlatform.allCases) { platform in
+                Button(platform.rawValue) {
+                    guard let track = player.currentTrack else { return }
+                    ExternalMusicOpener.open(
+                        platform: platform,
+                        title: track.title,
+                        artist: track.artistName
+                    )
+                }
+            }
+            Button("Annuler", role: .cancel) {}
+        }
+        .sheet(isPresented: $showVideo) {
+            if let track = player.currentTrack {
+                VideoPlayerView(title: track.title, artist: track.artistName)
+                    .environmentObject(player)
+            }
+        }
+        .sheet(isPresented: $showPlaylistPicker) {
+            if let track = player.currentTrack {
+                AddToPlaylistSheet(track: track)
+                    .environmentObject(playlistManager)
+                    .presentationDetents([.medium])
+                    .presentationDragIndicator(.visible)
+            }
+        }
+    }
+
+    // MARK: - Swipe-to-Dismiss Gesture
+
+    private var dismissGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                if value.translation.height > 0 {
+                    dragOffset = value.translation.height
+                }
+            }
+            .onEnded { value in
+                if value.translation.height > 150 || value.predictedEndTranslation.height > 300 {
+                    // Dismiss
+                    withAnimation(.easeOut(duration: 0.25)) {
+                        dragOffset = UIScreen.main.bounds.height
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                        dismiss()
+                    }
+                } else {
+                    // Snap back
+                    withAnimation(.spring(duration: 0.35, bounce: 0.2)) {
+                        dragOffset = 0
+                    }
+                }
+            }
     }
 
     // MARK: - Header
@@ -80,10 +146,14 @@ struct NowPlayingView: View {
                     .textCase(.uppercase)
                     .tracking(1)
                 Spacer()
-                // Balance spacer
-                Image(systemName: "chevron.down")
-                    .font(.title3)
-                    .opacity(0)
+                // Long press for platforms
+                Button {
+                    showPlatforms = true
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
             }
         }
     }
@@ -100,6 +170,10 @@ struct NowPlayingView: View {
                     .fill(.quaternary)
                     .frame(width: 300, height: 300)
             }
+        }
+        .onLongPressGesture(minimumDuration: 0.5) {
+            HapticManager.impact(.medium)
+            showPlatforms = true
         }
     }
 
@@ -194,6 +268,57 @@ struct NowPlayingView: View {
                 Image(systemName: liked ? "heart.fill" : "heart")
                     .font(.title2)
                     .foregroundStyle(liked ? .pink : .white.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - Bottom Actions
+
+    private var bottomActions: some View {
+        HStack(spacing: 36) {
+            // Video button
+            Button {
+                HapticManager.impact(.light)
+                showVideo = true
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "play.rectangle.fill")
+                        .font(.callout)
+                    Text("Vidéo")
+                        .font(.system(size: 9, weight: .medium))
+                }
+                .foregroundStyle(.white.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+
+            // Playlist button
+            Button {
+                HapticManager.impact(.light)
+                showPlaylistPicker = true
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "text.badge.plus")
+                        .font(.callout)
+                    Text("Playlist")
+                        .font(.system(size: 9, weight: .medium))
+                }
+                .foregroundStyle(.white.opacity(0.5))
+            }
+            .buttonStyle(.plain)
+
+            // External platforms
+            Button {
+                HapticManager.impact(.light)
+                showPlatforms = true
+            } label: {
+                VStack(spacing: 4) {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.callout)
+                    Text("Ouvrir dans")
+                        .font(.system(size: 9, weight: .medium))
+                }
+                .foregroundStyle(.white.opacity(0.5))
             }
             .buttonStyle(.plain)
         }

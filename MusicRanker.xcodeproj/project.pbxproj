@@ -24,6 +24,12 @@
 		EE000001000000000000005 /* ColorExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE000001000000000000004 /* ColorExtractor.swift */; };
 		EE000001000000000000007 /* TrackDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE000001000000000000006 /* TrackDetailView.swift */; };
 		FF000001000000000000002 /* NowPlayingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000001000000000000001 /* NowPlayingView.swift */; };
+		FF000002000000000000002 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000002000000000000001 /* SearchView.swift */; };
+		FF000003000000000000002 /* LibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000003000000000000001 /* LibraryView.swift */; };
+		FF000004000000000000002 /* VideoPlayerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000004000000000000001 /* VideoPlayerView.swift */; };
+		FF000005000000000000002 /* ExternalMusicProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000005000000000000001 /* ExternalMusicProvider.swift */; };
+		FF000006000000000000002 /* SearchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000006000000000000001 /* SearchViewModel.swift */; };
+		FF000007000000000000002 /* PlaylistManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF000007000000000000001 /* PlaylistManager.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +53,12 @@
 		EE000001000000000000004 /* ColorExtractor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorExtractor.swift; sourceTree = "<group>"; };
 		EE000001000000000000006 /* TrackDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrackDetailView.swift; sourceTree = "<group>"; };
 		FF000001000000000000001 /* NowPlayingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingView.swift; sourceTree = "<group>"; };
+		FF000002000000000000001 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		FF000003000000000000001 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
+		FF000004000000000000001 /* VideoPlayerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoPlayerView.swift; sourceTree = "<group>"; };
+		FF000005000000000000001 /* ExternalMusicProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalMusicProvider.swift; sourceTree = "<group>"; };
+		FF000006000000000000001 /* SearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchViewModel.swift; sourceTree = "<group>"; };
+		FF000007000000000000001 /* PlaylistManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaylistManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,6 +97,9 @@
 				DD000001000000000000003 /* LikedSongsView.swift */,
 				DD000001000000000000005 /* TasteProfileView.swift */,
 				FF000001000000000000001 /* NowPlayingView.swift */,
+				FF000002000000000000001 /* SearchView.swift */,
+				FF000003000000000000001 /* LibraryView.swift */,
+				FF000004000000000000001 /* VideoPlayerView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -103,6 +118,8 @@
 			children = (
 				BB000001000000000000001 /* AudioPlayerManager.swift */,
 				DD000001000000000000007 /* RecommendationEngine.swift */,
+				FF000006000000000000001 /* SearchViewModel.swift */,
+				FF000007000000000000001 /* PlaylistManager.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -138,6 +155,7 @@
 			children = (
 				EE000001000000000000002 /* iTunesService.swift */,
 				EE000001000000000000004 /* ColorExtractor.swift */,
+				FF000005000000000000001 /* ExternalMusicProvider.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -227,6 +245,12 @@
 				EE000001000000000000005 /* ColorExtractor.swift in Sources */,
 				EE000001000000000000007 /* TrackDetailView.swift in Sources */,
 				FF000001000000000000002 /* NowPlayingView.swift in Sources */,
+				FF000002000000000000002 /* SearchView.swift in Sources */,
+				FF000003000000000000002 /* LibraryView.swift in Sources */,
+				FF000004000000000000002 /* VideoPlayerView.swift in Sources */,
+				FF000005000000000000002 /* ExternalMusicProvider.swift in Sources */,
+				FF000006000000000000002 /* SearchViewModel.swift in Sources */,
+				FF000007000000000000002 /* PlaylistManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,7 +392,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasferriere.MusicRanker;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -396,7 +420,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 2.0;
+				MARKETING_VERSION = 3.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.thomasferriere.MusicRanker;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
