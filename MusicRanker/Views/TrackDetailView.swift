@@ -87,7 +87,7 @@ struct TrackDetailView: View {
             if player.isCurrent(id: track.id) {
                 player.togglePause()
             } else {
-                Task { await player.forcePlay(track: track) }
+                Task { player.forcePlay(track: track) }
             }
         } label: {
             HStack(spacing: 8) {

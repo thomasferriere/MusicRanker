@@ -156,7 +156,7 @@ struct LikedSongsView: View {
             albumId: nil,
             trackNumber: nil
         )
-        await player.forcePlay(track: track)
+        player.forcePlay(track: track)
     }
 
     private func topGenres(_ count: Int) -> [String] {

@@ -192,7 +192,7 @@ struct TasteProfileView: View {
                     HStack(spacing: 12) {
                         Text("\(index + 1)")
                             .font(.caption.bold().monospacedDigit())
-                            .foregroundStyle(index < 3 ? .tint : .secondary)
+                            .foregroundStyle(index < 3 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
                             .frame(width: 22, alignment: .trailing)
 
                         Text(artist.name)

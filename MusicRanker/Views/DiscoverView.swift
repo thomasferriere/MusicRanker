@@ -26,7 +26,7 @@ struct DiscoverView: View {
         .task {
             await engine.loadInitialCards()
             if let first = engine.cards.first {
-                await player.forcePlay(track: first)
+                player.forcePlay(track: first)
                 await updateGradient(for: first)
             }
         }
@@ -179,7 +179,7 @@ struct DiscoverView: View {
         // Auto-play next
         if let next = engine.cards.first {
             Task {
-                await player.forcePlay(track: next)
+                player.forcePlay(track: next)
                 await updateGradient(for: next)
             }
         } else {
@@ -192,7 +192,7 @@ struct DiscoverView: View {
         if player.isCurrent(id: track.id) {
             player.togglePause()
         } else {
-            Task { await player.forcePlay(track: track) }
+            Task { player.forcePlay(track: track) }
         }
     }
 
