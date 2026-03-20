@@ -301,7 +301,7 @@ struct PremiumPlaylistCard: View {
                 if case .success(let img) = phase {
                     img.resizable().aspectRatio(contentMode: .fill)
                 } else {
-                    Color.quaternary
+                    Color.gray.opacity(0.2)
                 }
             }
         } else {
@@ -324,7 +324,7 @@ struct PremiumPlaylistCard: View {
             if case .success(let img) = phase {
                 img.resizable().aspectRatio(contentMode: .fill)
             } else {
-                Color.quaternary
+                Color.gray.opacity(0.2)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
